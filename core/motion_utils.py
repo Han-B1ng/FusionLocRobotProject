@@ -82,36 +82,29 @@ def compute_acceleration(
     t: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
+    smooth_window: int = 5,
 ) -> tuple:
     """从等间距轨迹计算加速度分量与加速度大小。
 
-    先调用 compute_velocity 获得速度序列，
-    再对速度序列做同样的中心差分。
-
-    Parameters
-    ----------
-    t : np.ndarray, shape (N,)
-        等间距时间序列 (s)。
-    x : np.ndarray, shape (N,)
-        X 坐标序列 (m)。
-    y : np.ndarray, shape (N,)
-        Y 坐标序列 (m)。
-
-    Returns
-    -------
-    ax : np.ndarray, shape (N,)
-        X 方向加速度分量 (m/s²)。
-    ay : np.ndarray, shape (N,)
-        Y 方向加速度分量 (m/s²)。
-    acc : np.ndarray, shape (N,)
-        加速度大小，acc = sqrt(ax² + ay²) (m/s²)。
+    先计算速度，对速度做移动平均平滑后再差分，
+    避免二阶差分放大残余高频噪声。
     """
     vx, vy, _ = compute_velocity(t, x, y)
 
-    # 对速度序列再次差分，复用同一逻辑
-    ax, ay, acc = compute_velocity(t, vx, vy)
+    # ---- 新增：对速度做移动平均平滑 ----
+    if smooth_window > 1 and len(vx) > smooth_window:
+        kernel = np.ones(smooth_window) / smooth_window
+        # 用 reflect 填充避免边界效应
+        vx_smooth = np.convolve(vx, kernel, mode="same")
+        vy_smooth = np.convolve(vy, kernel, mode="same")
+    else:
+        vx_smooth = vx
+        vy_smooth = vy
+
+    ax, ay, acc = compute_velocity(t, vx_smooth, vy_smooth)
 
     return ax, ay, acc
+
 
 
 # ============================================================
