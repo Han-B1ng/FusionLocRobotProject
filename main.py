@@ -4,21 +4,15 @@
 # @Description : 主入口：一键运行从数据预处理到可视化的全流程
 
 """
-多源融合机器人定位项目 — 主入口
-================================
-使用方法::
+╔══════════════════════════════════════════════════════╗
+║  多源融合机器人定位项目 —— 主入口                      ║
+╚══════════════════════════════════════════════════════╝
 
-    # 运行全部阶段 + 可视化
-    python main.py
-
-    # 仅运行阶段 0 和 1
-    python main.py --stages 0 1
-
-    # 运行全部阶段但跳过可视化
-    python main.py --skip-viz
-
-    # 运行单个阶段
-    python main.py --stages 2
+使用方法：
+  python main.py                  # 运行全部阶段并可视化
+  python main.py --stages 0 1     # 仅运行阶段0和1
+  python main.py --skip-viz       # 运行全部阶段但跳过可视化
+  python main.py --stages 2       # 运行单个阶段
 """
 
 from __future__ import annotations
@@ -33,16 +27,12 @@ import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-# ──────────────────────────────────────────────
-#  确保项目根目录在 sys.path 中
-# ──────────────────────────────────────────────
+# ── 环境准备：确保项目根目录在sys.path中 ──
 _PROJECT_ROOT = Path(__file__).resolve().parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-# ──────────────────────────────────────────────
-#  项目配置
-# ──────────────────────────────────────────────
+# ── 导入项目配置 ──
 from config import (
     data_path,
     time_config,
@@ -51,9 +41,7 @@ from config import (
     task_config,
 )
 
-# ──────────────────────────────────────────────
-#  日志设置
-# ──────────────────────────────────────────────
+# ── 日志配置 ──
 logging.basicConfig(
     level=logging.INFO,
     format="[%(levelname)s] %(message)s",
@@ -61,15 +49,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ──────────────────────────────────────────────
-#  阶段名称映射
-# ──────────────────────────────────────────────
+# ── 阶段元数据定义 ──
 STAGE_NAMES: Dict[int, str] = {
-    0: "数据探索与预处理 (EDA)",
-    1: "问题1 — 无噪声时间对齐",
-    2: "问题2 — 含噪声+系统偏差融合",
-    3: "问题3 — 实际数据处理",
-    4: "问题4 — 任务规划与优化",
+    0: "数据探索与预处理（EDA）",
+    1: "问题1——无噪声时间对齐",
+    2: "问题2——含噪声与系统偏差融合",
+    3: "问题3——实际数据处理",
+    4: "问题4——任务规划与优化",
 }
 
 # 每个阶段运行前需要检查的输入文件
@@ -125,7 +111,7 @@ STAGE_SCRIPTS: Dict[int, str] = {
 #  工具函数
 # ============================================================
 def _print_banner(text: str, width: int = 70, char: str = "═") -> None:
-    """打印居中横幅标题。"""
+    """打印居中横幅标题（装饰用）。"""
     padding = max(0, (width - len(text) - 2) // 2)
     line = char * padding + f" {text} " + char * padding
     # 确保长度一致
@@ -136,35 +122,35 @@ def _print_banner(text: str, width: int = 70, char: str = "═") -> None:
 
 
 def _print_separator(width: int = 70, char: str = "─") -> None:
-    """打印分隔线。"""
+    """打印水平分隔线。"""
     logger.info(char * width)
 
 
 def _check_input_files(stage_num: int) -> bool:
-    """检查指定阶段所需的输入文件是否存在。
+    """检查指定阶段所需的输入文件是否全部存在。
 
     Parameters
     ----------
     stage_num : int
-        阶段编号。
+        阶段编号（0~4）。
 
     Returns
     -------
     bool
-        所有文件均存在时返回 True，否则返回 False。
+        全部存在返回True，否则返回False。
     """
     checks = STAGE_INPUT_CHECKS.get(stage_num, [])
     all_ok = True
     for desc, fpath in checks:
         fpath = Path(fpath)
         if not fpath.exists():
-            logger.error(f"[Main] 缺少输入文件: {desc} → {fpath}")
+            logger.error(f"[Main] 缺少输入文件：{desc} → {fpath}")
             all_ok = False
     return all_ok
 
 
 def _elapsed_str(seconds: float) -> str:
-    """将秒数格式化为可读时间字符串。"""
+    """将秒数格式化为可读时间字符串（如'2m 30.5s'）。"""
     if seconds < 60:
         return f"{seconds:.1f}s"
     minutes = int(seconds // 60)
@@ -182,32 +168,31 @@ def _elapsed_str(seconds: float) -> str:
 def run_stage(stage_num: int) -> bool:
     """运行指定编号的处理阶段。
 
-    优先尝试导入对应模块并调用其 ``run()`` 函数；
-    若模块无 ``run()`` 函数，则回退到 subprocess 方式执行脚本。
+    执行策略：优先导入模块调用run()，若不存在则回退至subprocess执行脚本。
 
     Parameters
     ----------
     stage_num : int
-        阶段编号 (0~4)。
+        阶段编号（0~4）。
 
     Returns
     -------
     bool
-        成功返回 True，失败返回 False。
+        成功返回True，失败返回False。
 
     Notes
     -----
-    - 执行前自动检查输入文件。
-    - 执行前后打印分隔线和耗时。
+    - 执行前自动校验输入文件
+    - 执行前后打印分隔线与耗时统计
     """
     stage_name = STAGE_NAMES.get(stage_num, f"阶段 {stage_num}")
 
     _print_banner(f"Stage {stage_num}: {stage_name}")
-    logger.info(f"[Main] 开始执行 Stage {stage_num} — {stage_name}")
+    logger.info(f"[Main] 开始执行阶段{stage_num}——{stage_name}")
 
     # ---- 输入文件检查 ----
     if not _check_input_files(stage_num):
-        logger.error(f"[Main] Stage {stage_num} 输入文件缺失，跳过。")
+        logger.error(f"[Main] 阶段{stage_num}输入文件缺失，跳过。")
         return False
 
     t_start = time.time()
@@ -220,29 +205,28 @@ def run_stage(stage_num: int) -> bool:
             module = importlib.import_module(module_name)
 
             if hasattr(module, "run") and callable(getattr(module, "run")):
-                logger.info(f"[Main] 通过 {module_name}.run() 执行...")
+                logger.info(f"[Main] 通过 {module_name}.run() 执行…")
                 module.run()
                 elapsed = time.time() - t_start
                 logger.info(
-                    f"[Main] Stage {stage_num} 完成  "
-                    f"(耗时: {_elapsed_str(elapsed)})"
+                    f"[Main] 阶段{stage_num}完成（耗时：{_elapsed_str(elapsed)}）"
                 )
                 _print_separator()
                 return True
             else:
                 logger.info(
                     f"[Main] {module_name} 未提供 run() 函数，"
-                    f"回退到 subprocess 执行..."
+                    f"回退至subprocess执行…"
                 )
         except ImportError as exc:
             logger.warning(
-                f"[Main] 无法导入 {module_name}: {exc}，"
-                f"回退到 subprocess 执行..."
+                f"[Main] 无法导入 {module_name}：{exc}，"
+                f"回退至subprocess执行…"
             )
         except Exception as exc:
             elapsed = time.time() - t_start
             logger.error(
-                f"[Main] Stage {stage_num} 执行异常 "
+                f"[Main] 阶段{stage_num}执行异常："
                 f"(耗时: {_elapsed_str(elapsed)}): {exc}"
             )
             logger.debug(traceback.format_exc())
@@ -252,15 +236,15 @@ def run_stage(stage_num: int) -> bool:
     # ---- 方式二：subprocess 回退 ----
     script_name = STAGE_SCRIPTS.get(stage_num)
     if script_name is None:
-        logger.error(f"[Main] Stage {stage_num} 无对应脚本定义。")
+        logger.error(f"[Main] 阶段{stage_num}无对应脚本定义。")
         return False
 
     script_path = _PROJECT_ROOT / script_name
     if not script_path.exists():
-        logger.error(f"[Main] 脚本文件不存在: {script_path}")
+        logger.error(f"[Main] 脚本文件不存在：{script_path}")
         return False
 
-    logger.info(f"[Main] 通过 subprocess 执行: {script_name}")
+    logger.info(f"[Main] 通过subprocess执行：{script_name}")
     try:
         result = subprocess.run(
             [sys.executable, str(script_path)],
@@ -281,25 +265,25 @@ def run_stage(stage_num: int) -> bool:
         if result.returncode != 0:
             elapsed = time.time() - t_start
             logger.error(
-                f"[Main] Stage {stage_num} 返回非零退出码: "
+                f"[Main] 阶段{stage_num}返回非零退出码："
                 f"{result.returncode} (耗时: {_elapsed_str(elapsed)})"
             )
             _print_separator()
             return False
 
     except subprocess.TimeoutExpired:
-        logger.error(f"[Main] Stage {stage_num} 执行超时 (>600s)。")
+        logger.error(f"[Main] 阶段{stage_num}执行超时（>600 s）。")
         _print_separator()
         return False
     except Exception as exc:
-        logger.error(f"[Main] Stage {stage_num} subprocess 异常: {exc}")
+        logger.error(f"[Main] 阶段{stage_num} subprocess异常：{exc}")
         logger.debug(traceback.format_exc())
         _print_separator()
         return False
 
     elapsed = time.time() - t_start
     logger.info(
-        f"[Main] Stage {stage_num} 完成  (耗时: {_elapsed_str(elapsed)})"
+        f"[Main] 阶段{stage_num}完成（耗时：{_elapsed_str(elapsed)}）"
     )
     _print_separator()
     return True
@@ -311,20 +295,20 @@ def run_stage(stage_num: int) -> bool:
 def run_visualization() -> bool:
     """运行全部可视化模块，生成论文级图表。
 
-    读取 ``output/`` 目录下的结果文件，调用 ``visualization/`` 子包中
-    的绘图函数，图表保存至 ``output/figures/``。
+    读取output/目录下的结果文件，调用visualization/子包中的绘图函数，
+    图表统一保存至output/figures/。
 
     Returns
     -------
     bool
-        成功返回 True，失败返回 False。
+        全部成功返回True，否则返回False。
 
     Notes
     -----
-    - 依赖各阶段产出的结果文件（pickle / xlsx）。
-    - 若某个结果文件缺失，仅跳过对应图表，不中断整体流程。
+    - 依赖各阶段产出的结果文件（.pkl / .xlsx）
+    - 若某个结果文件缺失，仅跳过对应图表，不中断整体流程
     """
-    _print_banner("Visualization: 生成全部图表")
+    _print_banner("可视化：生成全部图表")
     t_start = time.time()
 
     figures_dir: Path = data_path.output_dir / "figures"
@@ -337,23 +321,21 @@ def run_visualization() -> bool:
     def _safe_call(func, description: str, **kwargs) -> None:
         nonlocal success_count, fail_count
         try:
-            logger.info(f"[Viz] {description}...")
+            logger.info(f"[Viz] {description}…")
             func(**kwargs)
             success_count += 1
         except FileNotFoundError as exc:
-            logger.warning(f"[Viz] {description} — 文件缺失，跳过: {exc}")
+            logger.warning(f"[Viz] {description}——文件缺失，跳过：{exc}")
             fail_count += 1
         except KeyError as exc:
-            logger.warning(f"[Viz] {description} — 数据字段缺失，跳过: {exc}")
+            logger.warning(f"[Viz] {description}——数据字段缺失，跳过：{exc}")
             fail_count += 1
         except Exception as exc:
-            logger.warning(f"[Viz] {description} — 失败: {exc}")
+            logger.warning(f"[Viz] {description}——失败：{exc}")
             logger.debug(traceback.format_exc())
             fail_count += 1
 
-    # ==========================================================
-    #  1. EDA 图表
-    # ==========================================================
+    # ╔══ 1. EDA图表 ══╗
     try:
         import pickle
         pkl_path = data_path.output_dir / "cleaned_data.pkl"
@@ -422,15 +404,13 @@ def run_visualization() -> bool:
                 )
         else:
             logger.warning(
-                f"[Viz] cleaned_data.pkl 不存在 ({pkl_path})，跳过 EDA 图表。"
+                f"[Viz] cleaned_data.pkl 不存在（{pkl_path}），跳过EDA图表。"
             )
     except Exception as exc:
-        logger.warning(f"[Viz] EDA 可视化模块加载失败: {exc}")
+        logger.warning(f"[Viz] EDA可视化模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ==========================================================
-    #  2. 轨迹对比图（问题 1/2/3）
-    # ==========================================================
+    # ╔══ 2. 轨迹对比图（问题1/2/3） ══╗
     try:
         import pickle
         import numpy as np
@@ -455,7 +435,7 @@ def run_visualization() -> bool:
             for pnum, rpath in result_files.items():
                 if not rpath.exists():
                     logger.info(
-                        f"[Viz] 问题 {pnum} 结果文件不存在 ({rpath.name})，"
+                        f"[Viz] 问题{pnum}结果文件不存在（{rpath.name}），"
                         f"跳过轨迹对比图。"
                     )
                     continue
@@ -480,7 +460,7 @@ def run_visualization() -> bool:
                     x_ref=result.get("x_ref"),
                     y_ref=result.get("y_ref"),
                     save_path=figures_dir / f"trajectory_p{pnum}.png",
-                    title=f"问题 {pnum} 轨迹对比",
+                    title=f"问题{pnum} 轨迹对比",
                 )
 
                 # 误差时序
@@ -492,7 +472,7 @@ def run_visualization() -> bool:
                         error_x=result["error_x"],
                         error_y=result["error_y"],
                         save_path=figures_dir / f"error_p{pnum}.png",
-                        title=f"问题 {pnum} 融合误差",
+                        title=f"问题{pnum} 融合误差",
                     )
 
                 # 速度曲线
@@ -503,17 +483,15 @@ def run_visualization() -> bool:
                         t=result.get("t_speed", result.get("t_fused", np.array([]))),
                         speed=result["speed"],
                         save_path=figures_dir / f"velocity_p{pnum}.png",
-                        title=f"问题 {pnum} 速度曲线",
+                        title=f"问题{pnum} 速度曲线",
                     )
         else:
             logger.warning("[Viz] cleaned_data.pkl 不存在，跳过轨迹对比图。")
     except Exception as exc:
-        logger.warning(f"[Viz] 轨迹可视化模块加载失败: {exc}")
+        logger.warning(f"[Viz] 轨迹可视化模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ==========================================================
-    #  3. 任务规划图（问题 4）
-    # ==========================================================
+    # ╔══ 3. 任务规划图（问题4） ══╗
     try:
         import pickle
         import numpy as np
@@ -566,23 +544,21 @@ def run_visualization() -> bool:
                 for tid, headings in heading_data.items():
                     _safe_call(
                         plot_heading_diversity,
-                        f"航向角多样性 — 目标 {tid}",
+                        f"航向角多样性——目标{tid}",
                         target_id=tid,
                         headings=np.asarray(headings),
                         save_path=figures_dir / f"heading_diversity_t{tid}.png",
                     )
         else:
             logger.info(
-                f"[Viz] 问题 4 结果文件不存在 ({result4_path.name})，"
+                f"[Viz] 问题4结果文件不存在（{result4_path.name}），"
                 f"跳过任务规划图。"
             )
     except Exception as exc:
-        logger.warning(f"[Viz] 任务规划可视化模块加载失败: {exc}")
+        logger.warning(f"[Viz] 任务规划可视化模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ==========================================================
-    #  4. 论文级组合图
-    # ==========================================================
+    # ╔══ 4. 论文级组合图 ══╗
     try:
         import pickle
         import numpy as np
@@ -599,7 +575,7 @@ def run_visualization() -> bool:
                     result = pickle.load(f)
                 _safe_call(
                     summary_figure_paper,
-                    f"论文组合图 — 问题 {pnum}",
+                    f"论文组合图——问题{pnum}",
                     problem_num=pnum,
                     data_dict=result,
                     save_path=str(figures_dir / "summary_p{}.png").format(pnum),
@@ -627,21 +603,21 @@ def run_visualization() -> bool:
 
             _safe_call(
                 task_planning_paper,
-                "论文双栏图 — 问题 4",
+                "论文双栏图——问题4",
                 traj_x=traj_x, traj_y=traj_y, tasks=tasks,
                 save_path=figures_dir / "task_planning_p4.png",
                 t=t_traj, targets=targets,
             )
 
     except Exception as exc:
-        logger.warning(f"[Viz] 论文级图表模块加载失败: {exc}")
+        logger.warning(f"[Viz] 论文级图表模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
     # ---- 汇总 ----
     elapsed = time.time() - t_start
     logger.info("")
-    logger.info(f"[Viz] 可视化完成 — 成功: {success_count}, 失败/跳过: {fail_count}")
-    logger.info(f"[Viz] 总耗时: {_elapsed_str(elapsed)}")
+    logger.info(f"[Viz] 可视化完成——成功：{success_count}，失败/跳过：{fail_count}")
+    logger.info(f"[Viz] 总耗时：{_elapsed_str(elapsed)}")
     _print_separator()
 
     return fail_count == 0
@@ -651,17 +627,17 @@ def run_visualization() -> bool:
 #  主函数
 # ============================================================
 def main() -> None:
-    """主入口：解析命令行参数，按序执行各阶段并生成图表。"""
+    """主入口：解析命令行参数，按序执行各阶段并生成可视化图表。"""
 
     # ---- 命令行参数 ----
     parser = argparse.ArgumentParser(
-        description="多源融合机器人定位项目 — 一键运行全流程",
+        description="多源融合机器人定位项目——一键运行全流程",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "示例:\n"
-            "  python main.py                    # 运行全部阶段 + 可视化\n"
-            "  python main.py --stages 0 1       # 仅运行阶段 0 和 1\n"
-            "  python main.py --stages 2 3 4     # 运行阶段 2~4\n"
+            "示例：\n"
+            "  python main.py                    # 运行全部阶段并可视化\n"
+            "  python main.py --stages 0 1       # 仅运行阶段0和1\n"
+            "  python main.py --stages 2 3 4     # 运行阶段2~4\n"
             "  python main.py --skip-viz          # 跳过可视化\n"
         ),
     )
@@ -670,7 +646,7 @@ def main() -> None:
         nargs="+",
         choices=["0", "1", "2", "3", "4"],
         default=["0", "1", "2", "3", "4"],
-        help="要运行的阶段编号（默认: 0 1 2 3 4）",
+        help="要运行的阶段编号（默认：0 1 2 3 4）",
     )
     parser.add_argument(
         "--skip-viz",
@@ -686,12 +662,12 @@ def main() -> None:
     # ---- 总体计时 ----
     t_total_start = time.time()
 
-    _print_banner("多源融合机器人定位项目 — 全流程")
-    logger.info(f"[Main] 项目根目录: {_PROJECT_ROOT}")
-    logger.info(f"[Main] 数据目录:   {data_path.data_dir}")
-    logger.info(f"[Main] 输出目录:   {data_path.output_dir}")
-    logger.info(f"[Main] 待执行阶段: {stages_to_run}")
-    logger.info(f"[Main] 跳过可视化: {'是' if skip_viz else '否'}")
+    _print_banner("多源融合机器人定位项目——全流程")
+    logger.info(f"[Main] 项目根目录：{_PROJECT_ROOT}")
+    logger.info(f"[Main] 数据目录：{data_path.data_dir}")
+    logger.info(f"[Main] 输出目录：{data_path.output_dir}")
+    logger.info(f"[Main] 待执行阶段：{stages_to_run}")
+    logger.info(f"[Main] 跳过可视化：{'是' if skip_viz else '否'}")
     _print_separator()
 
     # ---- 确保输出目录存在 ----
@@ -705,22 +681,22 @@ def main() -> None:
             ok = run_stage(stage_num)
             stage_results[stage_num] = ok
             if ok:
-                logger.info(f"[Main] ✓ Stage {stage_num} 成功完成。")
+                logger.info(f"[Main] ✓ 阶段{stage_num}成功完成。")
             else:
-                logger.warning(f"[Main] ✗ Stage {stage_num} 失败。")
+                logger.warning(f"[Main] ✗ 阶段{stage_num}失败。")
                 # 阶段 0 失败则终止（后续阶段依赖它）
                 if stage_num == 0:
                     logger.error(
-                        "[Main] Stage 0 是基础阶段，失败后无法继续。终止。"
+                        "[Main] 阶段0是基础阶段，失败后无法继续，终止。"
                     )
                     break
         except KeyboardInterrupt:
-            logger.warning(f"[Main] 用户中断，Stage {stage_num} 未完成。")
+            logger.warning(f"[Main] 用户中断，阶段{stage_num}未完成。")
             stage_results[stage_num] = False
             break
         except Exception as exc:
             logger.error(
-                f"[Main] Stage {stage_num} 未捕获异常: {exc}"
+                f"[Main] 阶段{stage_num}未捕获异常：{exc}"
             )
             logger.debug(traceback.format_exc())
             stage_results[stage_num] = False
@@ -739,21 +715,21 @@ def main() -> None:
         else:
             logger.warning("[Main] 所有阶段均失败，跳过可视化。")
     else:
-        logger.info("[Main] 已跳过可视化 (--skip-viz)。")
+        logger.info("[Main] 已跳过可视化（--skip-viz）。")
 
     # ---- 最终汇总 ----
     t_total = time.time() - t_total_start
     _print_banner("运行汇总")
     for sn in sorted(stage_results.keys()):
         status = "✓ 成功" if stage_results[sn] else "✗ 失败"
-        logger.info(f"  Stage {sn} ({STAGE_NAMES.get(sn, '?')}): {status}")
+        logger.info(f"  阶段{sn}（{STAGE_NAMES.get(sn, '?')}）：{status}")
 
     if not skip_viz:
-        logger.info("  可视化:   已执行")
+        logger.info("  可视化：已执行")
     else:
-        logger.info("  可视化:   已跳过")
+        logger.info("  可视化：已跳过")
 
-    logger.info(f"  总耗时:   {_elapsed_str(t_total)}")
+    logger.info(f"  总耗时：{_elapsed_str(t_total)}")
     _print_separator()
 
     # 退出码：任何阶段失败则返回 1

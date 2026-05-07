@@ -4,10 +4,14 @@
 # @Description : 全局参数配置，分组管理时间、滤波、对齐、任务约束及路径
 
 """
-多源融合机器人定位项目 — 全局配置
-=================================
-所有配置均使用 dataclass 管理，便于类型检查与 IDE 补全。
-矩阵类参数以对角元元组表示，运行时可用 numpy.diag() 转换为完整矩阵。
+╔══════════════════════════════════════════════════════╗
+║  多源融合机器人定位项目 —— 全局配置                    ║
+╚══════════════════════════════════════════════════════╝
+
+设计原则：
+  · 所有配置均使用@dataclass(frozen=True)管理，不可变
+  · 矩阵类参数以对角元元组存储，运行时用numpy.diag()还原
+  · 分组管理：时间、滤波、对齐、任务约束、数据路径
 """
 
 from __future__ import annotations
@@ -18,12 +22,10 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 
-# ──────────────────────────────────────────────
-#  时间与频率配置
-# ──────────────────────────────────────────────
+# ╔══ 时间与频率配置 ══╗
 @dataclass(frozen=True)
 class TimeConfig:
-    """传感器采样频率、目标输出频率及各问题数据的时间区间。"""
+    """时间与频率配置：传感器采样率、目标输出率、各问题时间区间。"""
 
     # --- 传感器固有频率 ---
     freq1: float = 4.0          # Hz，传感器 1 采样频率
@@ -53,24 +55,21 @@ class TimeConfig:
         return 1.0 / self.target_freq
 
 
-# ──────────────────────────────────────────────
-#  卡尔曼滤波配置
-# ──────────────────────────────────────────────
+# ╔══ 卡尔曼滤波配置 ══╗
 @dataclass(frozen=True)
 class FilterConfig:
-    """
-    扩展卡尔曼滤波器 / 普通卡尔曼滤波器参数。
+    """扩展卡尔曼滤波器（EKF）参数配置。
 
-    状态向量默认定义为 [x, y, vx, vy]（4 维）；
-    当 estimate_bias = True 时扩展为 [x, y, vx, vy, bx, by]（6 维），
-    其中 (bx, by) 为系统偏差估计量。
+    状态向量：
+      · 默认：x = [x, y, vx, vy]ᵀ ∈ ℝ⁴
+      · 含偏差估计：x = [x, y, vx, vy, bx, by]ᵀ ∈ ℝ⁶
 
-    所有矩阵以对角元元组存储，运行时可用 numpy.diag() 还原。
+    矩阵存储：以对角元元组存储，运行时用numpy.diag()还原。
 
-    自适应 R 说明：
-      当 adaptive_R = True 时，R1 和 R2 将从数据残差自动估计，
-      不再使用下方的固定值。fuse_sensors 函数通过 R1_est / R2_est
-      参数接收外部估计值，若未传入则回退到 R1_fixed / R2_fixed。
+    自适应观测噪声R：
+      · adaptive_R=True时，R1/R2从数据残差自动估计
+      · fuse_sensors()通过R1_est/R2_est接收外部值
+      · 若未传入则回退至R1_fixed/R2_fixed
     """
 
     # --- 状态维度 ---
@@ -111,35 +110,31 @@ class FilterConfig:
         return self.R2_fixed
 
 
-# ──────────────────────────────────────────────
-#  时间对齐配置
-# ──────────────────────────────────────────────
+# ╔══ 时间对齐配置 ══╗
 @dataclass(frozen=True)
 class AlignmentConfig:
-    """传感器时间戳对齐参数。"""
+    """时间对齐参数配置。"""
 
     corr_window: float = 1.0
     method: str = 'linear'
     delay_range: Tuple[float, float] = (0.8, 1.2)
 
 
-# ──────────────────────────────────────────────
-#  任务约束配置（射击 & 拍照）
-# ──────────────────────────────────────────────
+# ╔══ 任务约束配置（射击与拍照） ══╗
 @dataclass(frozen=True)
 class TaskConfig:
-    """
-    机器人执行任务的物理约束参数。
-    所有角度单位为 **度 (°)**，计算时请自行转换为弧度。
+    """任务约束配置（射击与拍照）。
+
+    注意：所有角度单位为度(°)，计算时需转换为弧度。
     """
 
-    # ====== 射击约束 ======
+    # ── 射击约束 ──
     shoot_d: Tuple[float, float] = (5.0, 30.0)
     shoot_vmax: float = 2.0
     shoot_amax: float = 1.5
     shoot_prep: float = 1.5
 
-    # ====== 拍照约束 ======
+    # ── 拍照约束 ──
     photo_d: Tuple[float, float] = (10.0, 40.0)
     photo_vmax: float = 1.5
     photo_amax: float = 1.5
@@ -147,12 +142,10 @@ class TaskConfig:
     photo_prep: float = 0.5
 
 
-# ──────────────────────────────────────────────
-#  数据路径配置
-# ──────────────────────────────────────────────
+# ╔══ 数据路径配置 ══╗
 @dataclass(frozen=True)
 class DataPath:
-    """项目数据文件与输出目录。使用 pathlib.Path 保证跨平台兼容。"""
+    """数据路径配置：输入文件与输出目录（pathlib.Path）。"""
 
     data_dir: Path = Path('data')
     output_dir: Path = Path('output')
@@ -179,9 +172,7 @@ class DataPath:
         return self.data_dir / self.file4
 
 
-# ──────────────────────────────────────────────
-#  全局配置实例
-# ──────────────────────────────────────────────
+# ╔══ 全局配置实例 ══╗
 time_config = TimeConfig()
 filter_config = FilterConfig()
 alignment_config = AlignmentConfig()
@@ -189,9 +180,7 @@ task_config = TaskConfig()
 data_path = DataPath()
 
 
-# ──────────────────────────────────────────────
-#  自检
-# ──────────────────────────────────────────────
+# ╔══ 自检 ══╗
 if __name__ == '__main__':
     import textwrap
 

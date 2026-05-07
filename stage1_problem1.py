@@ -4,17 +4,22 @@
 # @Description : 问题1求解：加载附件1 → 时间对齐 → 输出时间偏差与10Hz轨迹
 
 """
-阶段 1 — 问题 1：无噪声时间对齐。
+╔══════════════════════════════════════════════════════╗
+║  阶段 1 — 问题1：无噪声条件下的时间对齐              ║
+╚══════════════════════════════════════════════════════╝
 
-附件 1 的两类传感器数据无噪声影响，但存在设备开机先后导致的时间偏差。
-本模块完成：
-  1. 加载附件 1 的两个传感器 sheet
-  2. 估计时间偏差（互相关 + 最小二乘）
-  3. 对齐并融合为 10Hz 轨迹
-  4. 输出 Excel + 对比图
+问题描述：
+  附件1的两类传感器无噪声干扰，仅因设备开机时序不同
+  导致时间戳存在偏移 Δt。
 
-依赖：core/time_alignment.py, config.py
-后续：stage2 复用本模块的对齐框架处理含噪声数据
+求解步骤：
+  ① 加载附件1的两个传感器工作表
+  ② 估计时间偏差（互相关 + 最小二乘精化）
+  ③ 线性插值对齐并等权融合为10 Hz轨迹
+  ④ 输出Excel结果 + 对比可视化
+
+依赖模块：core.time_alignment → align_sensors
+下游引用：stage2复用本模块的对齐框架
 """
 
 import matplotlib
@@ -33,8 +38,6 @@ from core.time_alignment import align_sensors
 # ============================================================
 #  全局绘图样式
 # ============================================================
-plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
-plt.rcParams["axes.unicode_minus"] = False
 try:
     plt.style.use("seaborn-v0_8-whitegrid")
 except OSError:
@@ -42,6 +45,11 @@ except OSError:
         plt.style.use("seaborn-whitegrid")
     except OSError:
         pass
+
+
+plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
+plt.rcParams["axes.unicode_minus"] = False
+
 
 # 传感器配色
 _COLOR_S1 = "#2563EB"   # 方式1 — 蓝
@@ -53,14 +61,14 @@ _COLOR_FUSED = "#16A34A"  # 融合轨迹 — 绿
 #  数据加载
 # ============================================================
 def load_problem1_data() -> tuple:
-    """加载附件 1 的两个传感器 sheet。
+    """加载附件1的两个传感器工作表。
 
     Returns
     -------
     t1, x1, y1 : np.ndarray
-        传感器 1 的时间戳 (s)、X/Y 坐标 (m)。
+        传感器1的时间戳(s)、X/Y坐标(m)。
     t2, x2, y2 : np.ndarray
-        传感器 2 的时间戳 (s)、X/Y 坐标 (m)。
+        传感器2的时间戳(s)、X/Y坐标(m)。
     """
     file_path = data_path.path1
 
@@ -72,7 +80,7 @@ def load_problem1_data() -> tuple:
                 file_path = alt
                 break
 
-    print(f"[stage1] 加载文件: {file_path}")
+    print(f"[stage1] 加载文件：{file_path}")
 
     df1 = pd.read_excel(
         file_path, sheet_name="方式1(4Hz)", engine="openpyxl"
@@ -106,11 +114,11 @@ def load_problem1_data() -> tuple:
     y2 = df2["y"].values.astype(np.float64)
 
     print(
-        f"[stage1] 传感器1: {len(t1)} 点, "
+        f"[stage1] 传感器1：{len(t1)} 个采样点，"
         f"[{t1[0]:.2f}, {t1[-1]:.2f}] s"
     )
     print(
-        f"[stage1] 传感器2: {len(t2)} 点, "
+        f"[stage1] 传感器2：{len(t2)} 个采样点，"
         f"[{t2[0]:.2f}, {t2[-1]:.2f}] s"
     )
 
@@ -126,9 +134,9 @@ def save_result(
     y_fused: np.ndarray,
     output_path: Path,
 ) -> None:
-    """将 10Hz 融合轨迹保存为 Excel。
+    """将10 Hz融合轨迹保存为Excel文件。
 
-    列名：Time(s), X(m), Y(m)
+    输出列名：Time(s)、X(m)、Y(m)
     """
     df = pd.DataFrame({
         "Time(s)": np.round(t_grid, 4),
@@ -140,7 +148,7 @@ def save_result(
     df.to_excel(output_path, index=False, engine="openpyxl")
 
     size_kb = output_path.stat().st_size / 1024
-    print(f"[stage1] 已保存: {output_path}  ({size_kb:.1f} KB)")
+    print(f"[stage1] 已保存：{output_path}（{size_kb:.1f} KB）")
 
 
 # ============================================================
@@ -155,43 +163,39 @@ def plot_comparison(
 ) -> None:
     """绘制对齐前后轨迹对比图。
 
-    子图 1：原始两个传感器数据（散点）
-    子图 2：融合后的 10Hz 轨迹（实线）
+    子图1：原始双传感器数据（散点图）
+    子图2：融合后的10 Hz轨迹（折线图）
     """
     fig, axes = plt.subplots(2, 1, figsize=(14, 10))
 
-    # --------------------------------------------------
-    # 子图 1：原始传感器数据
-    # --------------------------------------------------
+    # ── 子图1：原始传感器数据 ──
     ax1 = axes[0]
     ax1.scatter(
         t1, x1, s=4, color=_COLOR_S1, alpha=0.6,
-        label="Sensor1 (4Hz)", marker="o",
+        label="传感器1 (4Hz)", marker="o",
     )
     ax1.scatter(
         t2, x2, s=4, color=_COLOR_S2, alpha=0.6,
-        label="Sensor2 (5Hz)", marker="x",
+        label="传感器2 (5Hz)", marker="x",
     )
     ax1.set_ylabel("X (m)", fontsize=12)
     ax1.set_title(
-        "Problem 1 — Raw Sensor Data (Before Alignment)",
+        "问题1 — 对齐前原始传感器数据",
         fontsize=14, fontweight="bold",
     )
     ax1.legend(loc="upper right", fontsize=10)
 
-    # --------------------------------------------------
-    # 子图 2：融合后的 10Hz 轨迹
-    # --------------------------------------------------
+    # ── 子图2：融合后的10 Hz轨迹 ──
     ax2 = axes[1]
     ax2.plot(
         t_grid, x_fused,
         color=_COLOR_FUSED, linewidth=1.2, alpha=0.9,
-        label=f"Fused 10Hz (delay={delay_fine:+.4f}s)",
+        label=f"融合 10Hz (延迟={delay_fine:+.4f}s)",
     )
     ax2.set_xlabel("Time (s)", fontsize=12)
     ax2.set_ylabel("X (m)", fontsize=12)
     ax2.set_title(
-        "Problem 1 — Fused Trajectory (After Alignment)",
+        "问题1 — 对齐后融合轨迹",
         fontsize=14, fontweight="bold",
     )
     ax2.legend(loc="upper right", fontsize=10)
@@ -200,18 +204,18 @@ def plot_comparison(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
-    print(f"[stage1] 已保存: {output_path}")
+    print(f"[stage1] 已保存：{output_path}")
 
 
 # ============================================================
 #  主入口
 # ============================================================
 if __name__ == "__main__":
-    # ---- 加载数据 ----
+    # ── 1. 加载附件1数据 ──
     t1, x1, y1, t2, x2, y2 = load_problem1_data()
 
-    # ---- 时间对齐 + 融合 ----
-    #     问题 1 无噪声，等权重融合
+    # ── 2. 时间对齐与等权融合 ──
+    # 问题1无噪声，采用等权融合（w1=w2=0.5）
     delay_fine, t_grid, x_fused, y_fused = align_sensors(
         t1, x1, y1,
         t2, x2, y2,
@@ -221,21 +225,21 @@ if __name__ == "__main__":
         w1=0.5, w2=0.5,
     )
 
-    # ---- 打印结果 ----
+    # ── 3. 输出对齐结果 ──
     print("\n" + "=" * 50)
     print("  问题 1 结果")
     print("=" * 50)
-    print(f"  估计时间偏差: {delay_fine:+.6f} s")
-    print(f"  输出轨迹点数: {len(t_grid)}")
-    print(f"  时间范围: [{t_grid[0]:.2f}, {t_grid[-1]:.2f}] s")
-    print(f"  输出频率: {time_config.target_freq:.0f} Hz")
+    print(f"  估计时间偏差：{delay_fine:+.6f} s")
+    print(f"  输出轨迹点数：{len(t_grid)}")
+    print(f"  时间范围：[{t_grid[0]:.2f}, {t_grid[-1]:.2f}] s")
+    print(f"  输出频率：{time_config.target_freq:.0f} Hz")
     print("=" * 50)
 
-    # ---- 保存 Excel ----
+    # ── 4. 保存10 Hz融合轨迹 ──
     output_xlsx = data_path.output_dir / "Problem1_10Hz.xlsx"
     save_result(t_grid, x_fused, y_fused, output_xlsx)
 
-    # ---- 绘图 ----
+    # ── 5. 绘制对齐前后对比图 ──
     output_fig = data_path.output_dir / "figures" / "Problem1_trajectory.png"
     plot_comparison(
         t1, x1, y1,
@@ -245,5 +249,4 @@ if __name__ == "__main__":
         output_fig,
     )
 
-    print("\n[stage1] 问题 1 求解完毕。")
-
+    print("\n[stage1] 问题1求解完毕。")

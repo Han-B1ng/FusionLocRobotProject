@@ -28,9 +28,7 @@ import pandas as pd
 # ============================================================
 #  全局样式与字体
 # ============================================================
-plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
-plt.rcParams["axes.unicode_minus"] = False
-
+# 先应用样式
 try:
     plt.style.use("seaborn-v0_8-whitegrid")
 except OSError:
@@ -38,6 +36,13 @@ except OSError:
         plt.style.use("seaborn-whitegrid")
     except OSError:
         pass
+
+# 再设置中文字体
+plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
+plt.rcParams["axes.unicode_minus"] = False
+
+
+
 
 # 预设配色池：区分多条曲线
 _COLORS: List[str] = [
