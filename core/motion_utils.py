@@ -82,7 +82,7 @@ def compute_acceleration(
     t: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
-    smooth_window: int = 5,
+    smooth_window: int = 9,
 ) -> tuple:
     """从等间距轨迹计算加速度分量与加速度大小。
 
