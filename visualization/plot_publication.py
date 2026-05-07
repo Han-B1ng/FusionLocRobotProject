@@ -1,0 +1,656 @@
+# file: visualization/plot_publication.py
+# @Description : 论文级组合图生成模块
+# 依赖：matplotlib, numpy, pathlib, matplotlib.gridspec
+# 上游：stage1~4 的全部输出结果
+# 下游：被 main.py 调用，生成最终论文插图
+
+"""
+visualization/plot_publication.py
+==================================
+提供两类论文级组合图：
+  1. summary_figure_paper — 问题 1/2/3 四合一组合图（300 DPI）
+  2. task_planning_paper  — 问题 4 双栏图（轨迹 + 甘特图）
+
+所有图表遵循期刊投稿规范：
+  - 字体：衬线正文 + 无衬线标注
+  - 字号：标题 11pt、坐标轴 9pt、刻度 8pt、图例 8pt
+  - 线宽：坐标轴 0.6pt、数据线 0.8pt、参考线 0.4pt
+  - 配色：色盲友好 4 色方案
+  - 输出：300 DPI PNG + 可选 PDF/EPS 矢量格式
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.gridspec import GridSpec
+from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
+
+# ============================================================
+#  期刊风格全局配置
+# ============================================================
+_JOURNAL_RC: Dict[str, Any] = {
+    # ---- 字体 ----
+    "font.family":        "serif",
+    "font.serif":         ["Times New Roman", "SimSun", "DejaVu Serif"],
+    "mathtext.fontset":   "cm",
+    # ---- 字号 ----
+    "font.size":          9,
+    "axes.titlesize":     11,
+    "axes.labelsize":     9,
+    "xtick.labelsize":    8,
+    "ytick.labelsize":    8,
+    "legend.fontsize":    8,
+    # ---- 线条 ----
+    "axes.linewidth":     0.6,
+    "lines.linewidth":    0.8,
+    "grid.linewidth":     0.3,
+    "grid.alpha":         0.25,
+    # ---- 刻度朝内 ----
+    "xtick.direction":    "in",
+    "ytick.direction":    "in",
+    "xtick.major.size":   3,
+    "ytick.major.size":   3,
+    "xtick.minor.size":   1.5,
+    "ytick.minor.size":   1.5,
+    # ---- 图例 ----
+    "legend.framealpha":  0.85,
+    "legend.edgecolor":   "#CCCCCC",
+    "legend.borderpad":   0.4,
+    # ---- 保存 ----
+    "savefig.dpi":        300,
+    "savefig.bbox":       "tight",
+    "savefig.pad_inches": 0.02,
+}
+
+# ---- 色盲友好配色 ----
+_C_BLUE   = "#0072B2"   # 蓝
+_C_ORANGE = "#E69F00"   # 橙
+_C_GREEN  = "#009E73"   # 绿
+_C_RED    = "#D55E00"   # 红
+_C_GRAY   = "#999999"   # 灰
+_C_PURPLE = "#CC79A7"   # 紫
+
+# 传感器 → 配色映射
+_SENSOR_COLORS: Dict[str, str] = {
+    "方式1": _C_BLUE,
+    "方式2": _C_ORANGE,
+}
+
+_DPI_PUB = 300
+
+
+# ============================================================
+#  辅助工具
+# ============================================================
+def _ensure_parent(path: Path) -> None:
+    """创建保存路径的父目录。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _apply_journal_style() -> None:
+    """临时应用期刊风格 rcParams（上下文管理器式，用完后恢复）。"""
+    plt.rcParams.update(_JOURNAL_RC)
+
+
+def _save_multi_format(
+    fig: plt.Figure,
+    base_path: Path,
+    formats: Sequence[str] = ("png", "pdf"),
+) -> None:
+    """保存多种格式的图片。
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+    base_path : Path
+        不含后缀的基础路径。
+    formats : sequence of str
+        保存格式列表，如 ('png', 'pdf', 'eps')。
+    """
+    for fmt in formats:
+        out = base_path.with_suffix(f".{fmt}")
+        fig.savefig(out, dpi=_DPI_PUB, bbox_inches="tight", pad_inches=0.02)
+        print(f"  [save] {out}")
+
+
+def _extract_task_field(task: Any, *candidates: str, default: Any = None) -> Any:
+    """从 dict 或对象中按候选字段名依次取值。"""
+    if isinstance(task, dict):
+        for name in candidates:
+            if name in task:
+                return task[name]
+        return default
+    for name in candidates:
+        val = getattr(task, name, None)
+        if val is not None:
+            return val
+    return default
+
+
+# ============================================================
+#  1. 问题 1/2/3 四合一组合图
+# ============================================================
+def summary_figure_paper(
+    problem_num: int,
+    data_dict: Dict[str, Any],
+    save_path: Union[str, Path] = "output/figures/summary_p{}.png",
+    formats: Sequence[str] = ("png", "pdf"),
+) -> None:
+    """为问题 1/2/3 生成论文级四合一组合图。
+
+    布局::
+
+        ┌──────────────┬──────────────┐
+        │  左上: 轨迹   │  右上: 误差   │
+        ├──────────────┼──────────────┤
+        │  左下: 速度   │  右下: 偏差   │
+        └──────────────┴──────────────┘
+
+    Parameters
+    ----------
+    problem_num : int
+        问题编号 (1 / 2 / 3)，用于标题和路径格式化。
+    data_dict : dict
+        结果数据字典，键说明::
+
+            # ---- 必需 ----
+            't1', 'x1', 'y1'          : np.ndarray — 传感器 1 时间/坐标
+            't2', 'x2', 'y2'          : np.ndarray — 传感器 2 时间/坐标
+            't_fused', 'x_fused', 'y_fused' : np.ndarray — 融合轨迹
+
+            # ---- 可选（右上误差图）----
+            'error_x', 'error_y'      : np.ndarray — 融合误差
+            't_error'                  : np.ndarray — 误差时间轴
+                                        (默认与 t_fused 相同)
+
+            # ---- 可选（左下速度图）----
+            'speed'                    : np.ndarray — 合成速率 (m/s)
+            't_speed'                  : np.ndarray — 速度时间轴
+            'speed_limit'              : float — 速度限制线
+
+            # ---- 可选（右下偏差图）----
+            'bias_x', 'bias_y'        : np.ndarray — 偏差估计序列
+            't_bias'                   : np.ndarray — 偏差时间轴
+            'bias_true_x', 'bias_true_y' : float — 真实偏差值（参考线）
+
+            # ---- 可选 ----
+            't_ref', 'x_ref', 'y_ref' : np.ndarray — 参考/真值轨迹
+    save_path : str 或 Path
+        保存路径模板，可用 ``{}`` 或 ``{problem_num}`` 占位。
+        若无占位符则在文件名末尾追加问题编号。
+    formats : sequence of str
+        输出格式，默认 PNG + PDF。
+
+    Notes
+    -----
+    - 300 DPI 输出，字体适配期刊（Times New Roman + 宋体）。
+    - 各子图独立图例，不互相干扰。
+    - 偏差子图（右下）仅在 problem_num >= 2 且提供偏差数据时显示。
+    """
+    # ---- 解析保存路径 ----
+    if isinstance(save_path, str):
+        save_path = Path(save_path)
+    if "{" in str(save_path) or "%" in str(save_path):
+        save_path = Path(str(save_path).format(problem_num=problem_num, p=problem_num))
+    else:
+        stem = save_path.stem
+        save_path = save_path.parent / f"{stem}_p{problem_num}{save_path.suffix}"
+    _ensure_parent(save_path)
+    base_path = save_path.with_suffix("")
+
+    # ---- 恢复并应用期刊风格 ----
+    saved_rc = plt.rcParams.copy()
+    _apply_journal_style()
+
+    # ---- 提取数据 ----
+    t1 = np.asarray(data_dict["t1"])
+    x1 = np.asarray(data_dict["x1"])
+    y1 = np.asarray(data_dict["y1"])
+    t2 = np.asarray(data_dict["t2"])
+    x2 = np.asarray(data_dict["x2"])
+    y2 = np.asarray(data_dict["y2"])
+    t_fused = np.asarray(data_dict["t_fused"])
+    x_fused = np.asarray(data_dict["x_fused"])
+    y_fused = np.asarray(data_dict["y_fused"])
+
+    has_ref = all(k in data_dict for k in ("t_ref", "x_ref", "y_ref"))
+    has_error = all(k in data_dict for k in ("error_x", "error_y"))
+    has_speed = "speed" in data_dict
+    has_bias = all(k in data_dict for k in ("bias_x", "bias_y"))
+    show_bias = problem_num >= 2 and has_bias
+
+    # ---- 布局 ----
+    fig = plt.figure(figsize=(7.2, 5.6))  # 双栏期刊典型宽度
+    gs = GridSpec(
+        2, 2, figure=fig,
+        hspace=0.35, wspace=0.30,
+        left=0.08, right=0.96, top=0.90, bottom=0.10,
+    )
+
+    ax_traj   = fig.add_subplot(gs[0, 0])
+    ax_err    = fig.add_subplot(gs[0, 1])
+    ax_speed  = fig.add_subplot(gs[1, 0])
+    ax_bias   = fig.add_subplot(gs[1, 1])
+
+    # ==========================================================
+    #  左上：原始轨迹散点 + 融合轨迹线
+    # ==========================================================
+    ax_traj.scatter(
+        x1, y1, s=1.5, c=_C_BLUE, alpha=0.35, linewidths=0,
+        label="传感器 1", rasterized=True,
+    )
+    ax_traj.scatter(
+        x2, y2, s=1.5, c=_C_ORANGE, alpha=0.35, linewidths=0,
+        label="传感器 2", rasterized=True,
+    )
+    ax_traj.plot(
+        x_fused, y_fused,
+        color=_C_GREEN, linewidth=0.8, alpha=0.95,
+        label="融合轨迹",
+    )
+    if has_ref:
+        x_ref = np.asarray(data_dict["x_ref"])
+        y_ref = np.asarray(data_dict["y_ref"])
+        ax_traj.plot(
+            x_ref, y_ref,
+            color=_C_GRAY, linewidth=0.5, linestyle="--", alpha=0.8,
+            label="参考轨迹",
+        )
+
+    # 起点 / 终点
+    ax_traj.plot(x_fused[0], y_fused[0], "o", color=_C_GREEN,
+                 markersize=4, markeredgecolor="white", markeredgewidth=0.5)
+    ax_traj.plot(x_fused[-1], y_fused[-1], "s", color=_C_GREEN,
+                 markersize=4, markeredgecolor="white", markeredgewidth=0.5)
+
+    ax_traj.set_xlabel("$x$ (m)")
+    ax_traj.set_ylabel("$y$ (m)")
+    ax_traj.set_title("(a) 轨迹对比", fontsize=10, fontweight="bold")
+    ax_traj.legend(loc="best", fontsize=7, markerscale=3)
+    ax_traj.set_aspect("equal", adjustable="datalim")
+
+    # ==========================================================
+    #  右上：X/Y 方向误差分布
+    # ==========================================================
+    if has_error:
+        t_err = np.asarray(data_dict.get("t_error", t_fused))
+        err_x = np.asarray(data_dict["error_x"])
+        err_y = np.asarray(data_dict["error_y"])
+
+        ax_err.plot(t_err, err_x, color=_C_BLUE, linewidth=0.5,
+                    alpha=0.8, label=r"$e_x$")
+        ax_err.plot(t_err, err_y, color=_C_RED, linewidth=0.5,
+                    alpha=0.8, label=r"$e_y$")
+        ax_err.axhline(0, color="black", linewidth=0.3, linestyle="--")
+
+        # 统计信息
+        rmse_x = np.sqrt(np.mean(err_x ** 2))
+        rmse_y = np.sqrt(np.mean(err_y ** 2))
+        stats = (
+            f"RMSE$_x$={rmse_x:.3f} m\n"
+            f"RMSE$_y$={rmse_y:.3f} m"
+        )
+        ax_err.text(
+            0.97, 0.97, stats,
+            transform=ax_err.transAxes, fontsize=7,
+            va="top", ha="right", family="monospace",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.85),
+        )
+    else:
+        # 无误差数据时显示占位
+        ax_err.text(0.5, 0.5, "无误差数据", transform=ax_err.transAxes,
+                    fontsize=9, ha="center", va="center", color=_C_GRAY)
+    ax_err.set_xlabel("$t$ (s)")
+    ax_err.set_ylabel("误差 (m)")
+    ax_err.set_title("(b) 融合误差", fontsize=10, fontweight="bold")
+    ax_err.legend(loc="upper left", fontsize=7)
+
+    # ==========================================================
+    #  左下：速度曲线
+    # ==========================================================
+    if has_speed:
+        t_spd = np.asarray(data_dict.get("t_speed", t_fused))
+        spd = np.asarray(data_dict["speed"])
+
+        ax_speed.plot(t_spd, spd, color=_C_BLUE, linewidth=0.6, alpha=0.85)
+
+        spd_limit = data_dict.get("speed_limit", None)
+        if spd_limit is not None:
+            ax_speed.axhline(
+                spd_limit, color=_C_RED, linewidth=0.5, linestyle="--",
+                label=f"$v_{{max}}$={spd_limit:.1f} m/s",
+            )
+            ax_speed.legend(loc="upper right", fontsize=7)
+
+        # 填充均值区域
+        spd_mean = np.mean(spd)
+        ax_speed.axhline(spd_mean, color=_C_GRAY, linewidth=0.3, linestyle=":")
+        ax_speed.text(
+            t_spd[-1], spd_mean, f" $\\bar{{v}}$={spd_mean:.2f}",
+            fontsize=7, va="bottom", color=_C_GRAY,
+        )
+    else:
+        ax_speed.text(0.5, 0.5, "无速度数据", transform=ax_speed.transAxes,
+                      fontsize=9, ha="center", va="center", color=_C_GRAY)
+
+    ax_speed.set_xlabel("$t$ (s)")
+    ax_speed.set_ylabel("$v$ (m/s)")
+    ax_speed.set_title("(c) 速度曲线", fontsize=10, fontweight="bold")
+    ax_speed.set_ylim(bottom=0)
+
+    # ==========================================================
+    #  右下：系统偏差收敛曲线（仅问题 2/3）
+    # ==========================================================
+    if show_bias:
+        t_b = np.asarray(data_dict["t_bias"])
+        bx = np.asarray(data_dict["bias_x"])
+        by = np.asarray(data_dict["bias_y"])
+
+        ax_bias.plot(t_b, bx, color=_C_BLUE, linewidth=0.6,
+                     alpha=0.85, label=r"$\hat{b}_x$")
+        ax_bias.plot(t_b, by, color=_C_RED, linewidth=0.6,
+                     alpha=0.85, label=r"$\hat{b}_y$")
+
+        # 真实偏差参考线
+        bx_true = data_dict.get("bias_true_x", None)
+        by_true = data_dict.get("bias_true_y", None)
+        if bx_true is not None:
+            ax_bias.axhline(
+                bx_true, color=_C_BLUE, linewidth=0.4,
+                linestyle=":", alpha=0.6,
+                label=f"$b_x^*$={bx_true:.2f}",
+            )
+        if by_true is not None:
+            ax_bias.axhline(
+                by_true, color=_C_RED, linewidth=0.4,
+                linestyle=":", alpha=0.6,
+                label=f"$b_y^*$={by_true:.2f}",
+            )
+
+        ax_bias.legend(loc="best", fontsize=7, ncol=2)
+    else:
+        # 无偏差或问题 1：显示占位
+        ax_bias.text(
+            0.5, 0.5,
+            "问题 1：无系统偏差" if problem_num == 1 else "无偏差估计数据",
+            transform=ax_bias.transAxes, fontsize=9,
+            ha="center", va="center", color=_C_GRAY,
+        )
+
+    ax_bias.set_xlabel("$t$ (s)")
+    ax_bias.set_ylabel("偏差估计 (m)")
+    ax_bias.set_title(
+        "(d) 系统偏差收敛" if show_bias else "(d) 系统偏差",
+        fontsize=10, fontweight="bold",
+    )
+
+    # ---- 总标题 ----
+    problem_labels = {1: "问题 1：无噪声时间对齐",
+                      2: "问题 2：含偏差融合",
+                      3: "问题 3：实际数据处理"}
+    fig.suptitle(
+        problem_labels.get(problem_num, f"问题 {problem_num} 结果"),
+        fontsize=12, fontweight="bold", y=0.97,
+    )
+
+    # ---- 保存 ----
+    _save_multi_format(fig, base_path, formats)
+    plt.close(fig)
+    plt.rcParams.update(saved_rc)  # 恢复原始样式
+    print(f"[summary_figure_paper] 问题 {problem_num} 组合图已保存。")
+
+
+# ============================================================
+#  2. 问题 4 双栏图（轨迹 + 甘特图）
+# ============================================================
+def task_planning_paper(
+    traj_x: np.ndarray,
+    traj_y: np.ndarray,
+    tasks: List[Any],
+    save_path: Union[str, Path] = "output/figures/task_planning.png",
+    t: Optional[np.ndarray] = None,
+    targets: Optional[np.ndarray] = None,
+    formats: Sequence[str] = ("png", "pdf"),
+) -> None:
+    """为问题 4 生成论文级双栏组合图。
+
+    布局::
+
+        ┌─────────────────────────────────┐
+        │  左栏: 轨迹 + 任务标记           │
+        │                                 │
+        ├─────────────────────────────────┤
+        │  右栏: 任务甘特图                │
+        └─────────────────────────────────┘
+
+    Parameters
+    ----------
+    traj_x, traj_y : np.ndarray
+        融合轨迹坐标（米）。
+    tasks : list
+        任务列表，每个元素为 dict 或对象，需包含::
+
+            task_type    : str   — 'shoot' / 'photo'
+            target_id    : int/str
+            t_prep_start : float — 准备开始 (s)
+            t_exec_start : float — 执行开始 (s)
+            t_exec_end   : float — 执行结束 (s)
+            x, y         : float — 执行位置 (m)（可选）
+
+    save_path : str 或 Path
+        保存路径。
+    t : np.ndarray, optional
+        轨迹时间轴（用于从轨迹插值任务位置）。
+    targets : np.ndarray, optional
+        目标点坐标，shape ``(N, 2)`` 或 ``(N, 3)``。
+    formats : sequence of str
+        输出格式。
+    """
+    save_path = Path(save_path)
+    _ensure_parent(save_path)
+    base_path = save_path.with_suffix("")
+
+    saved_rc = plt.rcParams.copy()
+    _apply_journal_style()
+
+    # ---- 解析任务 ----
+    parsed: List[Dict[str, Any]] = []
+    for task in tasks:
+        ttype = str(_extract_task_field(task, "task_type", "type", default="")).lower()
+        tid = _extract_task_field(task, "target_id", "target", "id", default="?")
+        t_prep_start = _extract_task_field(task, "t_prep_start", default=None)
+        t_exec_start = _extract_task_field(task, "t_exec_start", "t_start", default=None)
+        t_exec_end = _extract_task_field(task, "t_exec_end", "t_end", default=None)
+        prep_dur = _extract_task_field(task, "prep_duration", "prep_time", default=0.0)
+        tx = _extract_task_field(task, "x", "pos_x", default=None)
+        ty = _extract_task_field(task, "y", "pos_y", default=None)
+        t_exec_time = _extract_task_field(task, "t_exec", "time", default=None)
+
+        if t_exec_start is None:
+            continue
+
+        if t_prep_start is None:
+            t_prep_start = float(t_exec_start) - float(prep_dur)
+
+        # 若无坐标，从轨迹插值
+        if tx is None and t is not None and t_exec_time is not None:
+            idx = np.argmin(np.abs(np.asarray(t) - float(t_exec_time)))
+            tx = traj_x[idx]
+            ty = traj_y[idx]
+
+        is_shoot = "shoot" in ttype or "射击" in ttype
+
+        parsed.append({
+            "target_id":    tid,
+            "is_shoot":     is_shoot,
+            "t_prep_start": float(t_prep_start),
+            "t_exec_start": float(t_exec_start),
+            "t_exec_end":   float(t_exec_end) if t_exec_end else float(t_exec_start),
+            "x":            tx,
+            "y":            ty,
+        })
+
+    parsed.sort(key=lambda d: d["t_exec_start"])
+    n_tasks = len(parsed)
+
+    # ---- 布局：左宽右窄 ----
+    fig = plt.figure(figsize=(7.2, 4.0))
+    gs = GridSpec(
+        1, 2, figure=fig,
+        width_ratios=[1.3, 1.0],
+        wspace=0.30,
+        left=0.06, right=0.97, top=0.88, bottom=0.12,
+    )
+
+    ax_traj = fig.add_subplot(gs[0, 0])
+    ax_gantt = fig.add_subplot(gs[0, 1])
+
+    # ==========================================================
+    #  左栏：轨迹 + 任务标记
+    # ==========================================================
+    ax_traj.plot(
+        traj_x, traj_y,
+        color=_C_GRAY, linewidth=0.5, alpha=0.6, zorder=1,
+    )
+
+    # 目标点
+    if targets is not None:
+        tgt = np.asarray(targets)
+        if tgt.ndim == 2 and tgt.shape[1] >= 3:
+            tx_plot, ty_plot = tgt[:, 1], tgt[:, 2]
+        elif tgt.ndim == 2 and tgt.shape[1] == 2:
+            tx_plot, ty_plot = tgt[:, 0], tgt[:, 1]
+        else:
+            tx_plot, ty_plot = np.array([]), np.array([])
+
+        ax_traj.scatter(
+            tx_plot, ty_plot, s=18, marker="D",
+            facecolor="none", edgecolor=_C_GRAY, linewidths=0.6,
+            alpha=0.6, zorder=2, label="目标点",
+        )
+
+    # 任务标记
+    for p in parsed:
+        px, py = p["x"], p["y"]
+        if px is None or py is None:
+            continue
+
+        if p["is_shoot"]:
+            marker, color, ms = "^", _C_RED, 6
+            tag = f"S{p['target_id']}"
+            offset = (5, 5)
+        else:
+            marker, color, ms = "o", _C_BLUE, 5
+            tag = f"P{p['target_id']}"
+            offset = (5, -8)
+
+        ax_traj.scatter(
+            px, py, marker=marker, s=ms ** 2, c=color,
+            edgecolors="white", linewidths=0.4, zorder=5,
+        )
+        ax_traj.annotate(
+            tag, (px, py), fontsize=6, color=color, fontweight="bold",
+            xytext=offset, textcoords="offset points",
+        )
+
+    ax_traj.set_xlabel("$x$ (m)")
+    ax_traj.set_ylabel("$y$ (m)")
+    ax_traj.set_title("(a) 任务执行位置", fontsize=10, fontweight="bold")
+    ax_traj.set_aspect("equal", adjustable="datalim")
+
+    # 图例
+    handles_traj = [
+        Line2D([0], [0], color=_C_GRAY, linewidth=0.5, label="融合轨迹"),
+        Line2D([0], [0], marker="^", color="w", markerfacecolor=_C_RED,
+               markersize=6, linestyle="None", label="射击"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=_C_BLUE,
+               markersize=5, linestyle="None", label="拍照"),
+    ]
+    if targets is not None:
+        handles_traj.append(
+            Line2D([0], [0], marker="D", color="w", markerfacecolor="none",
+                   markeredgecolor=_C_GRAY, markersize=5, linestyle="None",
+                   label="目标点")
+        )
+    ax_traj.legend(handles=handles_traj, loc="best", fontsize=7)
+
+    # ==========================================================
+    #  右栏：甘特图
+    # ==========================================================
+    if n_tasks == 0:
+        ax_gantt.text(0.5, 0.5, "无任务", transform=ax_gantt.transAxes,
+                      fontsize=10, ha="center", va="center", color=_C_GRAY)
+    else:
+        bar_h = 0.65
+
+        for i, p in enumerate(parsed):
+            y = n_tasks - 1 - i
+            color_exec = _C_RED if p["is_shoot"] else _C_BLUE
+
+            # 准备时段
+            prep_w = p["t_exec_start"] - p["t_prep_start"]
+            if prep_w > 0:
+                ax_gantt.barh(
+                    y, prep_w, left=p["t_prep_start"],
+                    height=bar_h, color="#E5E7EB", edgecolor="#D1D5DB",
+                    linewidth=0.3,
+                )
+
+            # 执行时段
+            exec_w = p["t_exec_end"] - p["t_exec_start"]
+            if exec_w <= 0:
+                exec_w = 0.3
+            ax_gantt.barh(
+                y, exec_w, left=p["t_exec_start"],
+                height=bar_h, color=color_exec, alpha=0.85,
+                edgecolor="white", linewidth=0.3,
+            )
+
+            # 时间标注
+            ax_gantt.text(
+                p["t_exec_start"] + exec_w / 2, y,
+                f'{p["t_exec_start"]:.1f}',
+                ha="center", va="center", fontsize=5.5,
+                color="white", fontweight="bold",
+            )
+
+        y_labels = [
+            f"{'S' if p['is_shoot'] else 'P'}-{p['target_id']}"
+            for p in reversed(parsed)
+        ]
+        ax_gantt.set_yticks(range(n_tasks))
+        ax_gantt.set_yticklabels(y_labels, fontsize=7)
+        ax_gantt.invert_yaxis()
+
+    ax_gantt.set_xlabel("$t$ (s)")
+    ax_gantt.set_title("(b) 任务调度", fontsize=10, fontweight="bold")
+
+    # 甘特图图例
+    handles_gantt = [
+        Rectangle((0, 0), 1, 1, facecolor="#E5E7EB", edgecolor="#D1D5DB",
+                  linewidth=0.3, label="准备"),
+        Rectangle((0, 0), 1, 1, facecolor=_C_RED, alpha=0.85,
+                  label="射击执行"),
+        Rectangle((0, 0), 1, 1, facecolor=_C_BLUE, alpha=0.85,
+                  label="拍照执行"),
+    ]
+    ax_gantt.legend(handles=handles_gantt, loc="lower right", fontsize=7)
+
+    # ---- 总标题 ----
+    fig.suptitle(
+        "问题 4：任务规划与优化",
+        fontsize=12, fontweight="bold", y=0.97,
+    )
+
+    # ---- 保存 ----
+    _save_multi_format(fig, base_path, formats)
+    plt.close(fig)
+    plt.rcParams.update(saved_rc)
+    print(f"[task_planning_paper] 问题 4 双栏图已保存。")

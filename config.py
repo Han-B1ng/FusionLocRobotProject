@@ -1,6 +1,8 @@
+# file: config.py
 # @Author : Han_B1ng
-# @Time : 2026/5/6 20:45
-# @Description :
+# @Time : 2026/5/7
+# @Description : 全局参数配置，分组管理时间、滤波、对齐、任务约束及路径
+
 """
 多源融合机器人定位项目 — 全局配置
 =================================
@@ -10,9 +12,10 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 
 # ──────────────────────────────────────────────
@@ -30,11 +33,9 @@ class TimeConfig:
     target_freq: float = 10.0   # Hz，融合后目标输出频率
 
     # --- 各问题数据的时间范围 (秒) ---
-    #     根据附件文件名 / 表头推测的大致有效区间，
-    #     格式为 (起始秒, 结束秒)，用于数据截取与对齐。
-    t_range_p1: Tuple[float, float] = (221.0, 645.0)    # 问题 1
-    t_range_p2: Tuple[float, float] = (102.0, 852.0)    # 问题 2
-    t_range_p3: Tuple[float, float] = (469.0, 1002.0)   # 问题 3
+    t_range_p1: Tuple[float, float] = (221.0, 970.75)
+    t_range_p2: Tuple[float, float] = (102.0, 852.0)
+    t_range_p3: Tuple[float, float] = (469.0, 1268.83)
 
     @property
     def dt1(self) -> float:
@@ -65,14 +66,17 @@ class FilterConfig:
     其中 (bx, by) 为系统偏差估计量。
 
     所有矩阵以对角元元组存储，运行时可用 numpy.diag() 还原。
+
+    自适应 R 说明：
+      当 adaptive_R = True 时，R1 和 R2 将从数据残差自动估计，
+      不再使用下方的固定值。fuse_sensors 函数通过 R1_est / R2_est
+      参数接收外部估计值，若未传入则回退到 R1_fixed / R2_fixed。
     """
 
     # --- 状态维度 ---
-    state_dim: int = 6                  # 含系统偏差时的状态维数
+    state_dim: int = 6
 
     # --- 初始状态协方差 P0 对角元 ---
-    #     [σ²_x, σ²_y, σ²_vx, σ²_vy, σ²_bx, σ²_by]
-    #     单位：位置 m²，速度 (m/s)²，偏差 m²
     P0: Tuple[float, ...] = (
         10.0, 10.0,         # 位置初始不确定性 (m²)
         5.0,  5.0,          # 速度初始不确定性 ((m/s)²)
@@ -80,23 +84,31 @@ class FilterConfig:
     )
 
     # --- 过程噪声协方差 Q 对角元 ---
-    #     单位同 P0
     Q: Tuple[float, ...] = (
         0.1,  0.1,          # 位置过程噪声 (m²)
         0.5,  0.5,          # 速度过程噪声 ((m/s)²)
         0.01, 0.01,         # 偏差随机游走噪声 (m²)
     )
 
-    # --- 传感器 1 观测噪声 R1 ---
-    #     观测量为 [x, y]，单位 m²
-    R1: Tuple[float, float] = (0.5, 0.5)
-
-    # --- 传感器 2 观测噪声 R2 ---
-    #     观测量为 [x, y]，单位 m²
-    R2: Tuple[float, float] = (0.3, 0.3)
+    # --- 固定观测噪声（默认值 / 自适应模式下的后备值）---
+    R1_fixed: Tuple[float, float] = (0.5, 0.5)   # 传感器 1 观测噪声 (m²)
+    R2_fixed: Tuple[float, float] = (0.3, 0.3)   # 传感器 2 观测噪声 (m²)
 
     # --- 是否启用系统偏差估计 ---
     estimate_bias: bool = True
+
+    # --- 是否启用自适应观测噪声估计 ---
+    adaptive_R: bool = False
+
+    @property
+    def R1(self) -> Tuple[float, float]:
+        """传感器 1 观测噪声对角元（兼容旧代码）。"""
+        return self.R1_fixed
+
+    @property
+    def R2(self) -> Tuple[float, float]:
+        """传感器 2 观测噪声对角元（兼容旧代码）。"""
+        return self.R2_fixed
 
 
 # ──────────────────────────────────────────────
@@ -106,9 +118,9 @@ class FilterConfig:
 class AlignmentConfig:
     """传感器时间戳对齐参数。"""
 
-    corr_window: float = 2.0            # 秒，互相关搜索滑动窗口长度
-    method: str = 'cubic'               # 插值方法：'cubic' | 'linear'
-    delay_range: Tuple[float, float] = (-1.0, 1.0)  # 秒，时偏搜索范围
+    corr_window: float = 1.0
+    method: str = 'linear'
+    delay_range: Tuple[float, float] = (0.8, 1.2)
 
 
 # ──────────────────────────────────────────────
@@ -122,17 +134,17 @@ class TaskConfig:
     """
 
     # ====== 射击约束 ======
-    shoot_d: Tuple[float, float] = (5.0, 30.0)   # m，射击有效距离范围
-    shoot_vmax: float = 2.0                       # m/s，射击时最大允许速度
-    shoot_amax: float = 1.5                       # m/s²，射击时最大允许加速度
-    shoot_prep: float = 1.5                       # s，射击前准备时间
+    shoot_d: Tuple[float, float] = (5.0, 30.0)
+    shoot_vmax: float = 2.0
+    shoot_amax: float = 1.5
+    shoot_prep: float = 1.5
 
     # ====== 拍照约束 ======
-    photo_d: Tuple[float, float] = (10.0, 40.0)  # m，拍照有效距离范围
-    photo_vmax: float = 1.5                       # m/s，拍照时最大允许速度
-    photo_amax: float = 1.5                       # m/s²，拍照时最大允许加速度
-    photo_angle_min: float = 60.0                 # °，相邻拍照角度最小差异
-    photo_prep: float = 0.5                       # s，拍照前准备时间
+    photo_d: Tuple[float, float] = (10.0, 40.0)
+    photo_vmax: float = 1.5
+    photo_amax: float = 1.5
+    photo_angle_min: float = 60.0
+    photo_prep: float = 0.5
 
 
 # ──────────────────────────────────────────────
@@ -142,38 +154,33 @@ class TaskConfig:
 class DataPath:
     """项目数据文件与输出目录。使用 pathlib.Path 保证跨平台兼容。"""
 
-    data_dir: Path = Path('data')         # 数据根目录
-    output_dir: Path = Path('output')     # 输出目录
+    data_dir: Path = Path('data')
+    output_dir: Path = Path('output')
 
-    # --- 附件文件名（相对于 data_dir）---
-    file1: str = '附件1.csv'              # 传感器 1 原始数据
-    file2: str = '附件2.csv'              # 传感器 2 原始数据
-    file3: str = '附件3.csv'              # 问题 1 / 问题 2 参考轨迹
-    file4: str = '附件4.csv'              # 问题 3 参考 / 补充数据
+    file1: str = '附件1.xlsx'
+    file2: str = '附件2.xlsx'
+    file3: str = '附件3.xlsx'
+    file4 = os.path.join(data_dir, "附件4.xlsx")
 
     @property
     def path1(self) -> Path:
-        """附件 1 完整路径。"""
         return self.data_dir / self.file1
 
     @property
     def path2(self) -> Path:
-        """附件 2 完整路径。"""
         return self.data_dir / self.file2
 
     @property
     def path3(self) -> Path:
-        """附件 3 完整路径。"""
         return self.data_dir / self.file3
 
     @property
     def path4(self) -> Path:
-        """附件 4 完整路径。"""
         return self.data_dir / self.file4
 
 
 # ──────────────────────────────────────────────
-#  全局配置实例 —— 项目中直接 import 使用
+#  全局配置实例
 # ──────────────────────────────────────────────
 time_config = TimeConfig()
 filter_config = FilterConfig()
@@ -183,20 +190,18 @@ data_path = DataPath()
 
 
 # ──────────────────────────────────────────────
-#  自检：直接运行此文件时打印所有配置
+#  自检
 # ──────────────────────────────────────────────
 if __name__ == '__main__':
     import textwrap
 
     def _print_section(title: str, obj: object) -> None:
-        """格式化打印一个 dataclass 实例的所有字段。"""
         header = f' {title} '
         print(f'\n{"=" * 60}')
         print(f'{header:=^60}')
         print(f'{"=" * 60}')
-        for fld_name in obj.__dataclass_fields__:          # type: ignore[attr-defined]
+        for fld_name in obj.__dataclass_fields__:
             value = getattr(obj, fld_name)
-            # 对 Path 对象显示为 POSIX 风格字符串
             if isinstance(value, Path):
                 value = value.as_posix()
             print(f'  {fld_name:<20s} = {value!r}')
@@ -210,7 +215,6 @@ if __name__ == '__main__':
     _print_section('TaskConfig', task_config)
     _print_section('DataPath', data_path)
 
-    # 额外输出便捷属性
     print(f'\n{"─" * 60}')
     print('  派生属性速查：')
     print(f'    传感器1 采样周期 dt1       = {time_config.dt1:.4f} s')
@@ -223,3 +227,24 @@ if __name__ == '__main__':
     print(f'{"─" * 60}')
     print('\n配置检查完毕。')
 
+# ============================================================
+#  任务约束参数
+# ============================================================
+class TaskConfig:
+    """射击与拍照任务的物理约束参数。"""
+
+    # ---- 射击任务 ----
+    SHOOT_PREP_TIME: float = 1.5        # 准备时间 (s)
+    SHOOT_DIST_MIN: float = 5.0         # 最小距离 (m)
+    SHOOT_DIST_MAX: float = 30.0        # 最大距离 (m)
+    SHOOT_SPEED_MAX: float = 2.0        # 速率上限 (m/s)
+    SHOOT_ACC_MAX: float = 1.5          # 加速度上限 (m/s²)
+
+    # ---- 拍照任务 ----
+    PHOTO_PREP_TIME: float = 0.5        # 准备时间 (s)
+    PHOTO_DIST_MIN: float = 10.0        # 最小距离 (m)
+    PHOTO_DIST_MAX: float = 40.0        # 最大距离 (m)
+    PHOTO_SPEED_MAX: float = 1.0        # 速率上限 (m/s)
+    PHOTO_ACC_MAX: float = 1.5          # 加速度上限 (m/s²)
+    PHOTO_HEADING_DIFF_MIN: float = 60.0  # 最小航向角差异 (°)
+    PHOTO_MAX_PER_TARGET: int = 3       # 每个目标最大拍照次数
