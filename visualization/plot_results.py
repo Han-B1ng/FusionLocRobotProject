@@ -7,10 +7,11 @@
 """
 visualization/plot_results.py
 ==============================
-提供三类任务规划结果可视化函数：
-  1. plot_tasks_on_trajectory  — 二维轨迹上叠加任务执行标记
-  2. plot_task_gantt           — 任务调度甘特图
-  3. plot_heading_diversity    — 拍照航向角多样性圆图 / 玫瑰图
+提供四类任务规划结果可视化函数：
+  1. plot_tasks_on_trajectory    — 二维轨迹上叠加任务执行标记
+  2. plot_task_gantt             — 任务调度甘特图
+  3. plot_heading_diversity      — 拍照航向角多样性圆图 / 玫瑰图
+  4. plot_task_gantt_enhanced    — 增强版甘特图（形状标记 + 候选窗口虚线标注）
 """
 
 from __future__ import annotations
@@ -24,19 +25,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import FancyArrowPatch, Rectangle
 
+# ========== 改动 A —— 新增 import ==========
+from config import plot_config
+# ===========================================
+
 # ============================================================
 #  全局样式
 # ============================================================
-plt.rcParams.update({
-    "font.sans-serif":    ["SimHei", "Microsoft YaHei", "DejaVu Sans"],
-    "axes.unicode_minus": False,
-    "axes.linewidth":     0.8,
-    "axes.grid":          True,
-    "grid.alpha":         0.25,
-    "grid.linewidth":     0.4,
-    "font.size":          10,
-})
-
+# 先应用seaborn样式
 try:
     plt.style.use("seaborn-v0_8-whitegrid")
 except OSError:
@@ -44,6 +40,18 @@ except OSError:
         plt.style.use("seaborn-whitegrid")
     except OSError:
         pass
+
+# 再应用中文字体配置（确保不被覆盖）
+plot_config.apply_style()
+
+# 最后应用其他自定义设置
+plt.rcParams.update({
+    "axes.linewidth":     0.8,
+    "axes.grid":          True,
+    "grid.alpha":         0.25,
+    "grid.linewidth":     0.4,
+    "font.size":          10,
+})
 
 # ---- 论文风格配色 ----
 _COLOR_TRAJ   = "#2563EB"   # 融合轨迹 — 蓝
@@ -559,3 +567,241 @@ def plot_heading_diversity(
     fig.savefig(save_path, dpi=_DPI, bbox_inches="tight")
     plt.close(fig)
     print(f"[plot_heading_diversity] 已保存: {save_path}")
+
+
+# ============================================================
+#  4. 增强版甘特图（形状标记 + 候选窗口虚线标注）
+# ============================================================
+def plot_task_gantt_enhanced(
+    tasks: List[Any],
+    save_path: Union[str, Path] = "output/figures/task_gantt_enhanced.png",
+    title: str = "任务调度甘特图（增强版）",
+    candidate_windows: Optional[List[Dict[str, Any]]] = None,
+) -> None:
+    """增强版任务调度甘特图。
+
+    在原有甘特图基础上增加三项功能：
+      1. 不同任务类型用不同形状标记（▲ 射击 / ● 拍照）
+      2. 可选叠加候选窗口的虚线标注（被丢弃的窗口）
+      3. 统一使用 plot_config 全局样式
+
+    Parameters
+    ----------
+    tasks : list
+        已调度任务列表，兼容 dict / dataclass / 命名元组。
+        需包含 ``task_type``, ``target_id`` 及时间字段
+        （``t_exec`` / ``t_execute`` / ``t_exec_start`` 等）。
+    save_path : str 或 Path
+        图片保存路径。
+    title : str
+        图表标题。
+    candidate_windows : list of dict, optional
+        调度前的全部可行窗口。函数会自动排除已调度的窗口，
+        将剩余窗口以虚线矩形标注在背景中，直观展示被丢弃的窗口。
+
+    Notes
+    -----
+    - 浅灰条 = 准备时段，彩色条 = 执行时段。
+    - ▲ 红色三角 = 射击执行标记，● 蓝色圆点 = 拍照执行标记。
+    - 虚线矩形 = 候选但未被选中的窗口（浅红/浅蓝区分类型）。
+    """
+    from matplotlib.lines import Line2D
+
+    save_path = Path(save_path)
+    _ensure_parent(save_path)
+
+    if not tasks:
+        fig, ax = plt.subplots(figsize=(12, 3), constrained_layout=True)
+        ax.text(
+            0.5, 0.5, "无任务数据", transform=ax.transAxes,
+            fontsize=14, ha="center", va="center", color="#9CA3AF",
+        )
+        ax.set_title(title, fontsize=13, fontweight="bold")
+        fig.savefig(save_path, dpi=_DPI, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[plot_task_gantt_enhanced] 已保存（空）: {save_path}")
+        return
+
+    # ---- 提取任务信息并按执行时间排序 ----
+    parsed: List[Dict[str, Any]] = []
+    for task in tasks:
+        ttype = str(
+            _extract_task_field(task, "task_type", "type", default="")
+        ).lower()
+        tid = _extract_task_field(task, "target_id", "target", "id", default="?")
+        t_prep_start = _extract_task_field(
+            task, "t_prep_start", "t_start_prep", default=None,
+        )
+        t_exec_start = _extract_task_field(
+            task, "t_exec_start", "t_exec", "t_execute", default=None,
+        )
+        t_exec_end = _extract_task_field(
+            task, "t_exec_end", "t_end", default=None,
+        )
+        prep_dur = _extract_task_field(
+            task, "prep_duration", "prep_time", default=0.0,
+        )
+
+        if t_exec_start is None:
+            continue
+
+        if t_prep_start is None:
+            t_prep_start = t_exec_start - float(prep_dur)
+
+        is_shoot = "shoot" in ttype or "射击" in ttype
+        label = f"{'射击' if is_shoot else '拍照'}-{tid}"
+
+        parsed.append({
+            "label":        label,
+            "t_prep_start": float(t_prep_start),
+            "t_exec_start": float(t_exec_start),
+            "t_exec_end":   (float(t_exec_end)
+                             if t_exec_end is not None
+                             else float(t_exec_start)),
+            "is_shoot":     is_shoot,
+            "tid":          tid,
+        })
+
+    parsed.sort(key=lambda d: d["t_exec_start"])
+    n_tasks = len(parsed)
+
+    # ---- 绘图 ----
+    fig, ax = plt.subplots(
+        figsize=(14, max(3, 0.5 * n_tasks + 2)),
+        constrained_layout=True,
+    )
+
+    bar_height = 0.6
+
+    # ── 背景层：候选窗口虚线标注（被丢弃的窗口）──
+    if candidate_windows:
+        # 已调度任务索引集合（用于排除）
+        scheduled_set = set()
+        for p in parsed:
+            scheduled_set.add((str(p["tid"]), p["t_exec_start"]))
+
+        # 目标 → y 轴映射
+        all_tids = list(
+            dict.fromkeys(p["tid"] for p in parsed)
+        )
+        tid_to_y = {
+            tid: n_tasks - 1 - i for i, tid in enumerate(all_tids)
+        }
+
+        for cw in candidate_windows:
+            cw_tid = _extract_task_field(
+                cw, "target_id", "target", "id", default=None,
+            )
+            cw_texec = _extract_task_field(
+                cw, "t_exec", "t_exec_start", "t_execute", default=None,
+            )
+            cw_tstart = _extract_task_field(
+                cw, "t_start", "t_start_prep", default=None,
+            )
+            cw_type = str(
+                _extract_task_field(cw, "task_type", "type", default="")
+            ).lower()
+
+            if cw_tid is None or cw_texec is None:
+                continue
+
+            cw_tid_str = str(cw_tid)
+            if (cw_tid_str, float(cw_texec)) in scheduled_set:
+                continue
+            if cw_tid_str not in tid_to_y:
+                continue
+
+            y = tid_to_y[cw_tid_str]
+            t_s = (float(cw_tstart)
+                   if cw_tstart is not None
+                   else float(cw_texec) - 1.5)
+            t_e = float(cw_texec) + 0.3
+
+            is_shoot_cw = "shoot" in cw_type or "射击" in cw_type
+            color_dash = "#FCA5A5" if is_shoot_cw else "#93C5FD"
+
+            ax.barh(
+                y, t_e - t_s, left=t_s,
+                height=bar_height * 0.4,
+                color="none", edgecolor=color_dash,
+                linewidth=0.8, linestyle="--", alpha=0.6,
+            )
+
+    # ── 前景层：已调度任务条 + 形状标记 ──
+    for i, p in enumerate(parsed):
+        y = n_tasks - 1 - i
+        color_exec = _COLOR_SHOOT if p["is_shoot"] else _COLOR_PHOTO
+
+        # 准备时段 — 浅灰
+        prep_width = p["t_exec_start"] - p["t_prep_start"]
+        if prep_width > 0:
+            ax.barh(
+                y, prep_width, left=p["t_prep_start"],
+                height=bar_height, color=_COLOR_PREP,
+                edgecolor="#D1D5DB", linewidth=0.5,
+            )
+
+        # 执行时段 — 彩色
+        exec_width = p["t_exec_end"] - p["t_exec_start"]
+        if exec_width <= 0:
+            exec_width = 0.3
+        ax.barh(
+            y, exec_width, left=p["t_exec_start"],
+            height=bar_height, color=color_exec, alpha=0.85,
+            edgecolor="white", linewidth=0.5,
+        )
+
+        # ── 形状标记：▲ 射击 / ● 拍照 ──
+        marker = "^" if p["is_shoot"] else "o"
+        marker_color = _COLOR_SHOOT if p["is_shoot"] else _COLOR_PHOTO
+        ax.plot(
+            p["t_exec_start"] + exec_width / 2, y,
+            marker=marker, markersize=8,
+            markerfacecolor=marker_color, markeredgecolor="white",
+            markeredgewidth=0.8, zorder=6,
+        )
+
+        # 时间标注
+        ax.text(
+            p["t_exec_start"] + exec_width / 2, y,
+            f'{p["t_exec_start"]:.1f}s',
+            ha="center", va="center", fontsize=7, color="white",
+            fontweight="bold",
+        )
+
+    # ---- 样式 ----
+    y_labels = [p["label"] for p in reversed(parsed)]
+    ax.set_yticks(range(n_tasks))
+    ax.set_yticklabels(y_labels, fontsize=9)
+    ax.set_xlabel("时间 (s)", fontsize=11)
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.invert_yaxis()
+
+    # 图例
+    legend_handles = [
+        Rectangle((0, 0), 1, 1, facecolor=_COLOR_PREP,
+                  edgecolor="#D1D5DB", label="准备时段"),
+        Rectangle((0, 0), 1, 1, facecolor=_COLOR_SHOOT,
+                  alpha=0.85, label="射击执行"),
+        Rectangle((0, 0), 1, 1, facecolor=_COLOR_PHOTO,
+                  alpha=0.85, label="拍照执行"),
+        Line2D([0], [0], marker="^", color="w",
+               markerfacecolor=_COLOR_SHOOT, markersize=8,
+               linestyle="None", label="射击标记 ▲"),
+        Line2D([0], [0], marker="o", color="w",
+               markerfacecolor=_COLOR_PHOTO, markersize=8,
+               linestyle="None", label="拍照标记 ●"),
+    ]
+    if candidate_windows:
+        legend_handles.append(
+            Line2D([0], [0], color="#FCA5A5", linewidth=1,
+                   linestyle="--", label="候选窗口（未选中）"),
+        )
+    ax.legend(
+        handles=legend_handles, loc="lower right",
+        fontsize=9, framealpha=0.9,
+    )
+
+    fig.savefig(save_path, dpi=_DPI, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[plot_task_gantt_enhanced] 已保存: {save_path}")

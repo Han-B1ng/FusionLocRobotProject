@@ -32,13 +32,18 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
+# 应用中文字体配置（在期刊样式之前）
+from config import plot_config
+plot_config.apply_style()
+
 # ============================================================
 #  期刊风格全局配置
 # ============================================================
 _JOURNAL_RC: Dict[str, Any] = {
+
     # ---- 字体 ----
-    "font.family":        "serif",
-    "font.serif":         ["Times New Roman", "SimSun", "DejaVu Serif"],
+    "font.family":        "sans-serif",
+    "font.sans-serif":    ["SimHei", "Microsoft YaHei", "STSong", "Source Han Serif SC", "DejaVu Sans"],
     "mathtext.fontset":   "cm",
     # ---- 字号 ----
     "font.size":          9,

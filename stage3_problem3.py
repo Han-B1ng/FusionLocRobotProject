@@ -23,6 +23,7 @@
 
 import matplotlib
 matplotlib.use("Agg")
+import config  # 触发 config.py 中的字体配置
 
 from pathlib import Path
 
@@ -30,21 +31,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-
-try:
-    plt.style.use("seaborn-v0_8-whitegrid")
-except OSError:
-    try:
-        plt.style.use("seaborn-whitegrid")
-    except OSError:
-        pass
-
-plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
-plt.rcParams["axes.unicode_minus"] = False
 # ── 三维绘图支持 ──
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-from config import alignment_config, data_path, filter_config, time_config
+from config import alignment_config, data_path, filter_config, time_config, plot_config
 from core.kalman_filters import estimate_adaptive_R, fuse_sensors
 from core.robust_stats import (
     bias_significance_test,
@@ -58,6 +48,21 @@ from core.wavelet_utils import (
     compare_denoise_configs,
     denoise_trajectory,
 )
+
+# ============================================================
+#  全局绘图样式
+# ============================================================
+# 先应用seaborn样式
+try:
+    plt.style.use("seaborn-v0_8-whitegrid")
+except OSError:
+    try:
+        plt.style.use("seaborn-whitegrid")
+    except OSError:
+        pass
+
+# 再应用中文字体配置（确保不被覆盖）
+plot_config.apply_style()
 
 
 def iterative_bias_estimation(
@@ -201,6 +206,103 @@ def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias
     fig.savefig(d / "Problem3_3D.png", dpi=180)
     plt.close()
 
+    # ── 多层融合轨迹图（空间 X-Y）+ 局部放大窗口 ──
+    from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
+
+    fig, ax = plt.subplots(figsize=(12, 10))
+
+    # Layer 1: 原始传感器轨迹（scatter，低透明度）
+    ax.scatter(x1, y1, s=2, c=plot_config.COLORS[1], alpha=0.3,
+               label="传感器1（原始）")
+    ax.scatter(x2, y2, s=2, c=plot_config.COLORS[2], alpha=0.3,
+               label="传感器2（原始）")
+
+    # Layer 2: 对齐后传感器2轨迹（虚线）
+    t2_aligned = t2 - delay
+    sort_idx = np.argsort(t2_aligned)
+    t2a_s = t2_aligned[sort_idx]
+    x2a_s, y2a_s = x2[sort_idx], y2[sort_idx]
+    mask_a = (t2a_s >= t1.min()) & (t2a_s <= t1.max())
+    ax.plot(x2a_s[mask_a], y2a_s[mask_a],
+            c=plot_config.COLORS[2], lw=1.0, alpha=0.7,
+            linestyle="--", label="传感器2（对齐后）")
+
+    # Layer 3: 融合轨迹（粗实线）
+    ax.plot(x_fused, y_fused,
+            c=plot_config.COLORS[3], lw=plot_config.linewidth_thick,
+            label="融合轨迹")
+
+    # ── 局部放大窗口（inset）──
+    n_f = len(x_fused)
+    mid = n_f // 2
+    half = max(n_f // 8, 20)
+
+    axins = inset_axes(ax, width="40%", height="40%", loc="upper left",
+                       bbox_to_anchor=(0.02, 0.5, 1, 1),
+                       bbox_transform=ax.transAxes)
+
+    axins.scatter(x1, y1, s=1, c=plot_config.COLORS[1], alpha=0.3)
+    axins.scatter(x2, y2, s=1, c=plot_config.COLORS[2], alpha=0.3)
+    axins.plot(x2a_s[mask_a], y2a_s[mask_a],
+               c=plot_config.COLORS[2], lw=0.8, alpha=0.7, linestyle="--")
+    axins.plot(x_fused, y_fused,
+               c=plot_config.COLORS[3], lw=2)
+
+    xz = x_fused[max(0, mid - half):mid + half]
+    yz = y_fused[max(0, mid - half):mid + half]
+    pad = 3
+    axins.set_xlim(xz.min() - pad, xz.max() + pad)
+    axins.set_ylim(yz.min() - pad, yz.max() + pad)
+    axins.tick_params(labelsize=8)
+    axins.set_aspect("equal")
+
+    mark_inset(ax, axins, loc1=2, loc2=4, fc="none", ec="0.5", lw=0.8)
+
+    ax.set_xlabel("X (m)", fontsize=plot_config.label_fontsize)
+    ax.set_ylabel("Y (m)", fontsize=plot_config.label_fontsize)
+    ax.set_title("多层融合轨迹对比",
+                 fontsize=plot_config.title_fontsize, fontweight="bold")
+    ax.legend(fontsize=plot_config.legend_fontsize,
+              frameon=plot_config.legend_frameon)
+    ax.set_aspect("equal", adjustable="datalim")
+
+    fig.tight_layout()
+    fig.savefig(d / "Problem3_multilayer.png", dpi=plot_config.dpi)
+    plt.close()
+
+    # ── 导出可视化数据 pkl（供 main.py 统一可视化）──
+    import pickle
+
+    # 计算速度
+    vx_fused = np.gradient(xf, tg)
+    vy_fused = np.gradient(yf, tg)
+    speed = np.sqrt(vx_fused**2 + vy_fused**2)
+
+    # 参考轨迹用传感器1去噪后插值
+    x_ref = np.interp(tg, t1, x1_d)
+    y_ref = np.interp(tg, t1, y1_d)
+
+    result_p3 = {
+        "t1": t1, "x1": x1_d, "y1": y1_d,
+        "t2": t2 - delay, "x2": x2_d, "y2": y2_d,
+        "t_fused": tg, "x_fused": xf, "y_fused": yf,
+        "t_ref": tg, "x_ref": x_ref, "y_ref": y_ref,
+        "error_x": xf - x_ref,
+        "error_y": yf - y_ref,
+        "t_error": tg,
+        "speed": speed,
+        "t_speed": tg,
+        "bias_x": bxa,
+        "bias_y": bya,
+        "t_bias": tg,
+        "bias_true_x": bias_x,
+        "bias_true_y": bias_y,
+    }
+
+    pkl_path = output_dir / "result_problem3.pkl"
+    with open(pkl_path, "wb") as _f:
+        pickle.dump(result_p3, _f, protocol=pickle.HIGHEST_PROTOCOL)
+    print(f"[问题3] 可视化数据已保存 → {pkl_path}")
 
 if __name__ == "__main__":
     output_dir = data_path.output_dir

@@ -78,8 +78,13 @@ def compute_velocity(
 # ============================================================
 #  加速度
 # ============================================================
-import numpy as np
-from scipy.signal import savgol_filter
+try:
+    from scipy.signal import savgol_filter
+
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
+
 
 def compute_acceleration(
     t: np.ndarray,
@@ -90,6 +95,9 @@ def compute_acceleration(
 ) -> tuple:
     """使用 Savitzky-Golay 滤波计算速度与加速度，抑制噪声放大。
 
+    内部对位置做 SG 一阶求导得速度、二阶求导得加速度。
+    所有平滑参数在此统一控制，外部不应再做二次滤波。
+
     Parameters
     ----------
     t : np.ndarray
@@ -98,42 +106,56 @@ def compute_acceleration(
         坐标序列 (m)。
     window_length : int
         SG 滤波窗口长度（奇数），推荐 9~15。
+        实际窗口会自动裁剪以适配数据长度。
     polyorder : int
         多项式阶数，推荐 3。
 
     Returns
     -------
-    ax, ay, acc : np.ndarray
-        加速度分量及大小 (m/s²)。
+    ax : np.ndarray
+        X 方向加速度 (m/s²)。
+    ay : np.ndarray
+        Y 方向加速度 (m/s²)。
+    acc : np.ndarray
+        加速度大小，acc = sqrt(ax² + ay²) (m/s²)。
     """
-    dt = t[1] - t[0]
+    t = np.asarray(t, dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
 
-    # 直接对位置做 SG 滤波得一阶速度、二阶加速度
-    # 若 window_length 太大则自动缩减
-    wl = min(window_length, len(x) - 1)
-    if wl % 2 == 0:
-        wl -= 1
-    if wl < polyorder + 2:
-        # 退化为简单中心差分
-        vx = np.gradient(x, dt)
-        vy = np.gradient(y, dt)
-    else:
-        vx = savgol_filter(x, wl, polyorder, deriv=1, delta=dt)
-        vy = savgol_filter(y, wl, polyorder, deriv=1, delta=dt)
+    dt = float(t[1] - t[0])
+    n = len(x)
 
-    # 加速度同样用 SG 滤波
-    wl_a = min(window_length, len(vx) - 1)
-    if wl_a % 2 == 0:
-        wl_a -= 1
-    if wl_a < polyorder + 2:
-        ax = np.gradient(vx, dt)
-        ay = np.gradient(vy, dt)
-    else:
+    if HAS_SCIPY and n > polyorder + 2:
+        # --- 速度：对位置做 SG 一阶求导 ---
+        wl_v = min(window_length, n - 1)
+        if wl_v % 2 == 0:
+            wl_v -= 1
+        if wl_v < polyorder + 2:
+            wl_v = polyorder + 2 + (1 - (polyorder + 2) % 2)  # 保证奇数且 > polyorder
+
+        vx = savgol_filter(x, wl_v, polyorder, deriv=1, delta=dt)
+        vy = savgol_filter(y, wl_v, polyorder, deriv=1, delta=dt)
+
+        # --- 加速度：对速度做 SG 一阶求导 ---
+        wl_a = min(window_length + 2, n - 1)  # 加速度用稍大窗口更稳定
+        if wl_a % 2 == 0:
+            wl_a -= 1
+        if wl_a < polyorder + 2:
+            wl_a = wl_v  # 退回速度的窗口
+
         ax = savgol_filter(vx, wl_a, polyorder, deriv=1, delta=dt)
         ay = savgol_filter(vy, wl_a, polyorder, deriv=1, delta=dt)
+    else:
+        # scipy 不可用时退化为 np.gradient（中心差分）
+        vx = np.gradient(x, dt)
+        vy = np.gradient(y, dt)
+        ax = np.gradient(vx, dt)
+        ay = np.gradient(vy, dt)
 
     acc = np.sqrt(ax ** 2 + ay ** 2)
     return ax, ay, acc
+
 
 
 # ============================================================

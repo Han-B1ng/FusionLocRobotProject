@@ -27,6 +27,18 @@ import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
+from matplotlib import pyplot as plt
+
+try:
+    plt.style.use("seaborn-v0_8-whitegrid")
+except OSError:
+    try:
+        plt.style.use("seaborn-whitegrid")
+    except OSError:
+        pass
+# 中文字体配置已由 config.py 统一处理，此处无需重复设置
+
+
 # ── 环境准备：确保项目根目录在sys.path中 ──
 _PROJECT_ROOT = Path(__file__).resolve().parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -39,6 +51,7 @@ from config import (
     filter_config,
     alignment_config,
     task_config,
+    plot_config,
 )
 
 # ── 日志配置 ──
@@ -311,6 +324,13 @@ def run_visualization() -> bool:
     _print_banner("可视化：生成全部图表")
     t_start = time.time()
 
+    # ---- 全局样式应用 ----
+    try:
+        plot_config.apply_style()
+        logger.info("[Viz] 全局绘图样式已应用（plot_config）")
+    except Exception as exc:
+        logger.warning(f"[Viz] 样式应用失败，使用默认样式：{exc}")
+
     figures_dir: Path = data_path.output_dir / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
@@ -491,6 +511,40 @@ def run_visualization() -> bool:
         logger.warning(f"[Viz] 轨迹可视化模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
+    # ╔══ 2.5 速度热力轨迹图 ══╗
+    try:
+        import pickle
+        import numpy as np
+        from visualization.plot_trajectory import plot_velocity_heatmap_trajectory
+
+        for pnum in (1, 2, 3):
+            rpath = data_path.output_dir / f"result_problem{pnum}.pkl"
+            if not rpath.exists():
+                continue
+
+            with open(rpath, "rb") as f:
+                result = pickle.load(f)
+
+            x_fused = result.get("x_fused")
+            y_fused = result.get("y_fused")
+            speed = result.get("speed")
+
+            if x_fused is None or y_fused is None or speed is None:
+                continue
+
+            # 速度序列长度可能与轨迹不一致，截取
+            n = min(len(x_fused), len(y_fused), len(speed))
+            _safe_call(
+                plot_velocity_heatmap_trajectory,
+                f"速度热力轨迹 — 问题 {pnum}",
+                x=x_fused[:n], y=y_fused[:n], speed=speed[:n],
+                save_path=figures_dir / f"velocity_heatmap_p{pnum}.png",
+                title=f"问题{pnum} 速度热力轨迹",
+            )
+    except Exception as exc:
+        logger.warning(f"[Viz] 速度热力轨迹模块加载失败：{exc}")
+        logger.debug(traceback.format_exc())
+
     # ╔══ 3. 任务规划图（问题4） ══╗
     try:
         import pickle
@@ -558,6 +612,91 @@ def run_visualization() -> bool:
         logger.warning(f"[Viz] 任务规划可视化模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
+    # ╔══ 3.5 增强甘特图 + 约束漏斗图 ══╗
+    try:
+        import pickle
+        import numpy as np
+        from visualization.plot_results import plot_task_gantt_enhanced
+
+        result4_path = data_path.output_dir / "result_problem4.pkl"
+        if result4_path.exists():
+            with open(result4_path, "rb") as f:
+                result4 = pickle.load(f)
+
+            tasks = result4.get("tasks", [])
+            candidate_windows = result4.get("candidate_windows", None)
+
+            # 增强甘特图
+            _safe_call(
+                plot_task_gantt_enhanced,
+                "问题4 增强甘特图",
+                tasks=tasks,
+                save_path=figures_dir / "task_gantt_enhanced_p4.png",
+                candidate_windows=candidate_windows,
+            )
+    except Exception as exc:
+        logger.warning(f"[Viz] 增强甘特图模块加载失败：{exc}")
+        logger.debug(traceback.format_exc())
+
+    # ---- 约束漏斗图 ----
+    try:
+        import pandas as pd
+        from visualization.plot_constraint_analysis import (
+            plot_constraint_funnel,
+            build_funnel_from_stage4,
+        )
+
+        # 优先从 result_problem4.pkl 构建漏斗
+        result4_path = data_path.output_dir / "result_problem4.pkl"
+        funnel_built = False
+
+        if result4_path.exists():
+            with open(result4_path, "rb") as f:
+                result4 = pickle.load(f)
+
+            windows_shoot = result4.get("windows_shoot", [])
+            windows_photo = result4.get("windows_photo", [])
+            tasks = result4.get("tasks", [])
+            all_targets = result4.get("all_targets", [])
+
+            if windows_shoot or windows_photo:
+                labels, counts = build_funnel_from_stage4(
+                    windows_shoot, windows_photo, tasks, all_targets,
+                )
+                _safe_call(
+                    plot_constraint_funnel,
+                    "约束漏斗图",
+                    stage_labels=labels, stage_counts=counts,
+                    save_path=figures_dir / "constraint_funnel_p4.png",
+                )
+                funnel_built = True
+
+        # 回退：从 constraint_stats.xlsx 读取
+        if not funnel_built:
+            stats_path = data_path.output_dir / "constraint_stats.xlsx"
+            if stats_path.exists():
+                df_stats = pd.read_excel(stats_path, engine="openpyxl")
+                stage_map = {}
+                for _, row in df_stats.iterrows():
+                    stage = str(row.get("阶段", ""))
+                    cat = str(row.get("类别", "全部"))
+                    count = int(row.get("数量", 0))
+                    if cat == "全部":
+                        stage_map[stage] = count
+
+                if len(stage_map) >= 2:
+                    labels = list(stage_map.keys())
+                    counts = list(stage_map.values())
+                    _safe_call(
+                        plot_constraint_funnel,
+                        "约束漏斗图（从xlsx构建）",
+                        stage_labels=labels, stage_counts=counts,
+                        save_path=figures_dir / "constraint_funnel_p4.png",
+                    )
+    except Exception as exc:
+        logger.warning(f"[Viz] 约束漏斗图模块加载失败：{exc}")
+        logger.debug(traceback.format_exc())
+
     # ╔══ 4. 论文级组合图 ══╗
     try:
         import pickle
@@ -611,6 +750,142 @@ def run_visualization() -> bool:
 
     except Exception as exc:
         logger.warning(f"[Viz] 论文级图表模块加载失败：{exc}")
+        logger.debug(traceback.format_exc())
+
+    # ╔══ 5. 参数敏感性分析（若有扫描结果） ══╗
+    try:
+        import pickle
+        import numpy as np
+        from visualization.plot_sensitivity_analysis import (
+            plot_sensitivity_single,
+            plot_sensitivity_heatmap,
+            plot_tradeoff_curve,
+        )
+
+        # 检查是否有预计算的敏感性分析结果
+        sa_path = data_path.output_dir / "sensitivity_results.pkl"
+        if sa_path.exists():
+            with open(sa_path, "rb") as f:
+                sa_data = pickle.load(f)
+
+            # 单参数扫描
+            if "single" in sa_data:
+                for param_name, pdata in sa_data["single"].items():
+                    _safe_call(
+                        plot_sensitivity_single,
+                        f"单参数敏感性 — {param_name}",
+                        param_name=param_name,
+                        param_values=pdata["param_values"],
+                        metrics=pdata["metrics"],
+                        save_path=figures_dir / f"sensitivity_{param_name}.png",
+                        baseline_value=pdata.get("baseline"),
+                        highlight_best=pdata.get("highlight_best"),
+                    )
+
+            # 双参数热力图
+            if "heatmap" in sa_data:
+                for key, hdata in sa_data["heatmap"].items():
+                    _safe_call(
+                        plot_sensitivity_heatmap,
+                        f"双参数热力图 — {key}",
+                        param1_name=hdata["param1_name"],
+                        param1_values=hdata["param1_values"],
+                        param2_name=hdata["param2_name"],
+                        param2_values=hdata["param2_values"],
+                        metric_matrix=hdata["metric_matrix"],
+                        save_path=figures_dir / f"sensitivity_heatmap_{key}.png",
+                        metric_name=hdata.get("metric_name", "指标值"),
+                        baseline=hdata.get("baseline"),
+                    )
+
+            # Trade-off 曲线
+            if "tradeoff" in sa_data:
+                for key, tdata in sa_data["tradeoff"].items():
+                    _safe_call(
+                        plot_tradeoff_curve,
+                        f"Trade-off — {key}",
+                        x_metric=tdata["x_metric"],
+                        y_metric=tdata["y_metric"],
+                        param_values=tdata["param_values"],
+                        x_label=tdata.get("x_label", "指标 X"),
+                        y_label=tdata.get("y_label", "指标 Y"),
+                        save_path=figures_dir / f"tradeoff_{key}.png",
+                        param_label=tdata.get("param_label", "参数值"),
+                        baseline_idx=tdata.get("baseline_idx"),
+                    )
+        else:
+            logger.info(
+                "[Viz] sensitivity_results.pkl 不存在，跳过敏感性分析图。"
+                "（需先运行参数扫描并保存结果至该文件）"
+            )
+    except Exception as exc:
+        logger.warning(f"[Viz] 敏感性分析模块加载失败：{exc}")
+        logger.debug(traceback.format_exc())
+
+    # ╔══ 6. 案例分析（Case Study） ══╗
+    try:
+        import pickle
+        import numpy as np
+        from visualization.plot_case_study import plot_case_study
+        from config import task_config
+
+        result4_path = data_path.output_dir / "result_problem4.pkl"
+        if result4_path.exists():
+            with open(result4_path, "rb") as f:
+                result4 = pickle.load(f)
+
+            traj_x = result4.get("traj_x", None)
+            traj_y = result4.get("traj_y", None)
+            t_fused = result4.get("t_fused", None)
+            speed = result4.get("speed", None)
+            acc = result4.get("acc", None)
+            tasks = result4.get("tasks", [])
+            all_targets = result4.get("all_targets", [])
+
+            if (traj_x is not None and traj_y is not None
+                    and t_fused is not None and speed is not None
+                    and acc is not None and len(tasks) > 0):
+
+                id_to_target = {tgt["id"]: tgt for tgt in all_targets}
+
+                # 选前 3 个任务做案例分析
+                for task in tasks[:3]:
+                    tid = task.get("target_id")
+                    tgt = id_to_target.get(tid)
+                    if tgt is None:
+                        continue
+
+                    task_type = task.get("task_type", "shoot")
+                    t_exec = task.get("t_exec", task.get("t_execute"))
+
+                    # 约束参数
+                    if task_type == "shoot":
+                        dmin, dmax = task_config.SHOOT_DIST_MIN, task_config.SHOOT_DIST_MAX
+                        vlim = task_config.SHOOT_SPEED_MAX
+                    else:
+                        dmin, dmax = task_config.PHOTO_DIST_MIN, task_config.PHOTO_DIST_MAX
+                        vlim = task_config.PHOTO_SPEED_MAX
+
+                    _safe_call(
+                        plot_case_study,
+                        f"案例分析 — {tgt.get('name', f'T{tid}')} {task_type}",
+                        t=t_fused, x=traj_x, y=traj_y,
+                        speed=speed, acc=acc,
+                        target_x=tgt["x"], target_y=tgt["y"],
+                        target_name=tgt.get("name", f"T{tid}"),
+                        task_type=task_type,
+                        t_exec=t_exec,
+                        window=30.0,
+                        dist_min=dmin, dist_max=dmax,
+                        speed_limit=vlim,
+                        save_path=figures_dir / f"case_study_{tgt.get('name', f'T{tid}')}_{task_type}.png",
+                    )
+        else:
+            logger.info(
+                "[Viz] result_problem4.pkl 不存在，跳过案例分析图。"
+            )
+    except Exception as exc:
+        logger.warning(f"[Viz] 案例分析模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
     # ---- 汇总 ----

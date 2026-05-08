@@ -17,10 +17,6 @@
 依赖模块：config.py → time_config, data_path
 下游依赖：stage1~stage4均读取cleaned_data.pkl
 """
-from matplotlib.font_manager import FontProperties
-font_path = r"C:\Windows\Fonts\simhei.ttf"
-zh_font = FontProperties(fname=font_path)
-
 import pickle
 import warnings
 from pathlib import Path
@@ -34,21 +30,32 @@ import pandas as pd
 
 from config import time_config, data_path
 
+# 应用中文字体配置
+import matplotlib.pyplot as plt
+plot_config = None
+try:
+    from config import plot_config
+    # 先应用样式，再应用中文字体配置，确保中文字体不被覆盖
+    try:
+        plt.style.use("seaborn-v0_8-whitegrid")
+    except OSError:
+        try:
+            plt.style.use("seaborn-whitegrid")
+        except OSError:
+            pass
+    plot_config.apply_style()
+except ImportError:
+    # 如果导入失败，设置默认中文字体
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
+    plt.rcParams['axes.unicode_minus'] = False
+
 
 
 # ============================================================
 #  全局绘图样式
 # ============================================================
+# 注意：样式已在上面的字体配置中应用，此处无需重复
 
-try:
-    plt.style.use("seaborn-v0_8-whitegrid")
-except OSError:
-    try:
-        plt.style.use("seaborn-whitegrid")
-    except OSError:
-        pass
-plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
-plt.rcParams["axes.unicode_minus"] = False
 # 传感器配色
 _COLOR_S1 = "#2563EB"   # 方式1 — 蓝
 _COLOR_S2 = "#DC2626"   # 方式2 — 红
@@ -318,13 +325,12 @@ def plot_raw_data(
         axes[0].set_ylabel("X (m)", fontsize=12)
         axes[0].set_title(
             f"{att_name} — 原始轨迹", fontsize=14, fontweight="bold",
-            fontproperties=zh_font
         )
-        axes[0].legend(loc="upper right", fontsize=10, prop=zh_font)
+        axes[0].legend(loc="upper right", fontsize=10)
 
         axes[1].set_ylabel("Y (m)", fontsize=12)
         axes[1].set_xlabel("Time (s)", fontsize=12)
-        axes[1].legend(loc="upper right", fontsize=10, prop=zh_font)
+        axes[1].legend(loc="upper right", fontsize=10)
 
         fig.tight_layout()
         save_path = figures_dir / f"{att_name}_raw.png"

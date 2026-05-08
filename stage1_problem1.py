@@ -24,7 +24,7 @@
 
 import matplotlib
 matplotlib.use("Agg")
-
+import config  # 触发 config.py 中的字体配置
 import warnings
 from pathlib import Path
 
@@ -32,12 +32,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from config import data_path, time_config, alignment_config
+from config import data_path, time_config, alignment_config, plot_config
 from core.time_alignment import align_sensors
 
 # ============================================================
 #  全局绘图样式
 # ============================================================
+# 先应用seaborn样式
 try:
     plt.style.use("seaborn-v0_8-whitegrid")
 except OSError:
@@ -46,9 +47,8 @@ except OSError:
     except OSError:
         pass
 
-
-plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
-plt.rcParams["axes.unicode_minus"] = False
+# 再应用中文字体配置（确保不被覆盖）
+plot_config.apply_style()
 
 
 # 传感器配色

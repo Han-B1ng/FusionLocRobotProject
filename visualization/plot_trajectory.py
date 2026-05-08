@@ -7,10 +7,11 @@
 """
 visualization/plot_trajectory.py
 =================================
-提供三类轨迹可视化函数：
-  1. plot_trajectory_comparison — 二维轨迹对比（x-y 平面）
-  2. plot_error_time_series     — 融合误差随时间变化
-  3. plot_velocity_profile      — 速度曲线 + 可选任务窗口标注
+提供四类轨迹可视化函数：
+  1. plot_trajectory_comparison         — 二维轨迹对比（x-y 平面）
+  2. plot_error_time_series             — 融合误差随时间变化
+  3. plot_velocity_profile              — 速度曲线 + 可选任务窗口标注
+  4. plot_velocity_heatmap_trajectory   — 速度热力轨迹（LineCollection 分段着色）
 """
 
 from __future__ import annotations
@@ -23,20 +24,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+# ========== 改动 A —— 新增 import ==========
+from config import plot_config
+# ===========================================
+
 # ============================================================
 #  全局样式
 # ============================================================
-plt.rcParams.update({
-    "font.sans-serif":    ["SimHei", "Microsoft YaHei", "DejaVu Sans"],
-    "axes.unicode_minus": False,
-    "axes.linewidth":     0.8,
-    "axes.grid":          True,
-    "grid.alpha":         0.3,
-    "grid.linewidth":     0.5,
-    "lines.linewidth":    1.0,
-    "font.size":          10,
-})
-
+# 先应用seaborn样式
 try:
     plt.style.use("seaborn-v0_8-whitegrid")
 except OSError:
@@ -44,6 +39,19 @@ except OSError:
         plt.style.use("seaborn-whitegrid")
     except OSError:
         pass
+
+# 再应用中文字体配置（确保不被覆盖）
+plot_config.apply_style()
+
+# 最后应用其他自定义设置
+plt.rcParams.update({
+    "axes.linewidth":     0.8,
+    "axes.grid":          True,
+    "grid.alpha":         0.3,
+    "grid.linewidth":     0.5,
+    "lines.linewidth":    1.0,
+    "font.size":          10,
+})
 
 # ---- 论文风格配色 ----
 _COLOR_S1     = "#2563EB"   # 传感器 1 — 蓝
@@ -379,3 +387,107 @@ def plot_velocity_profile(
     fig.savefig(save_path, dpi=_DPI, bbox_inches="tight")
     plt.close(fig)
     print(f"[plot_velocity_profile] 已保存: {save_path}")
+
+
+# ============================================================
+#  4. 速度热力轨迹图（LineCollection 分段着色）
+# ============================================================
+def plot_velocity_heatmap_trajectory(
+    x: np.ndarray,
+    y: np.ndarray,
+    speed: np.ndarray,
+    save_path: Union[str, Path] = "output/figures/velocity_heatmap.png",
+    title: str = "速度热力轨迹",
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    cmap_name: str = "RdYlBu_r",
+) -> None:
+    """使用 LineCollection 按速度分段着色，生成速度热力轨迹图。
+
+    Parameters
+    ----------
+    x, y : np.ndarray
+        轨迹的 X / Y 坐标序列。
+    speed : np.ndarray
+        各点的合成速率，单位 m/s。
+    save_path : str 或 Path
+        图片保存路径。
+    title : str
+        图表标题。
+    vmin, vmax : float, optional
+        色标范围。若为 None 则自动取速度的 2%~98% 分位数。
+    cmap_name : str
+        matplotlib 色图名称，默认 ``'RdYlBu_r'``
+        （红-黄-蓝反转，高速=红，低速=蓝）。
+
+    Notes
+    -----
+    - 使用 ``matplotlib.collections.LineCollection`` 将轨迹拆分为
+      线段，每段颜色由两端速度均值映射。
+    - 起点空心圆 ``○``，终点实心圆 ``●``。
+    - 右侧附色标（colorbar），标注速率单位。
+    """
+    from matplotlib.collections import LineCollection
+    from matplotlib.colors import Normalize
+
+    save_path = Path(save_path)
+    _ensure_parent(save_path)
+
+    # ---- 构建 LineCollection 段 ----
+    points = np.column_stack([x, y]).reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+    # 每段取两端速度均值作为着色依据
+    speed_seg = 0.5 * (speed[:-1] + speed[1:])
+
+    if vmin is None:
+        vmin = float(np.percentile(speed_seg, 2))
+    if vmax is None:
+        vmax = float(np.percentile(speed_seg, 98))
+
+    norm = Normalize(vmin=vmin, vmax=vmax)
+    cmap = plt.cm.get_cmap(cmap_name)
+
+    fig, ax = plt.subplots(figsize=(10, 8), constrained_layout=True)
+
+    lc = LineCollection(
+        segments, cmap=cmap, norm=norm,
+        linewidths=plot_config.linewidth, alpha=0.9,
+    )
+    lc.set_array(speed_seg)
+    ax.add_collection(lc)
+
+    # ---- 起点 / 终点标记 ----
+    ax.plot(
+        x[0], y[0],
+        marker="o", markersize=10,
+        markerfacecolor="white", markeredgecolor="black",
+        markeredgewidth=1.5, zorder=5, label="起点",
+    )
+    ax.plot(
+        x[-1], y[-1],
+        marker="o", markersize=10,
+        markerfacecolor="black", markeredgecolor="black",
+        markeredgewidth=1.5, zorder=5, label="终点",
+    )
+
+    ax.set_xlim(x.min() - 2, x.max() + 2)
+    ax.set_ylim(y.min() - 2, y.max() + 2)
+    ax.set_aspect("equal", adjustable="datalim")
+
+    # ---- 色标 ----
+    cbar = fig.colorbar(lc, ax=ax, shrink=0.75, pad=0.02)
+    cbar.set_label("速率 (m/s)", fontsize=plot_config.label_fontsize)
+    cbar.ax.tick_params(labelsize=plot_config.tick_fontsize)
+
+    ax.set_xlabel("X (m)", fontsize=plot_config.label_fontsize)
+    ax.set_ylabel("Y (m)", fontsize=plot_config.label_fontsize)
+    ax.set_title(title, fontsize=plot_config.title_fontsize, fontweight="bold")
+    ax.legend(
+        loc="best", fontsize=plot_config.legend_fontsize,
+        frameon=plot_config.legend_frameon,
+    )
+
+    fig.savefig(save_path, dpi=plot_config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[plot_velocity_heatmap_trajectory] 已保存: {save_path}")

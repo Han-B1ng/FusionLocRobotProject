@@ -23,6 +23,7 @@
 
 import matplotlib
 matplotlib.use("Agg")
+import config  # 触发 config.py 中的字体配置
 
 from pathlib import Path
 
@@ -30,20 +31,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-try:
-    plt.style.use("seaborn-v0_8-whitegrid")
-except OSError:
-    try:
-        plt.style.use("seaborn-whitegrid")
-    except OSError:
-        pass
-plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
-plt.rcParams["axes.unicode_minus"] = False
-
 # ── 三维绘图支持 ──
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-from config import alignment_config, data_path, filter_config, time_config
+from config import alignment_config, data_path, filter_config, time_config, plot_config
 from core.kalman_filters import estimate_adaptive_R, fuse_sensors
 from core.robust_stats import (
     bias_significance_test,
@@ -57,6 +48,21 @@ from core.wavelet_utils import (
     compare_denoise_configs,
     denoise_trajectory,
 )
+
+# ============================================================
+#  全局绘图样式
+# ============================================================
+# 先应用seaborn样式
+try:
+    plt.style.use("seaborn-v0_8-whitegrid")
+except OSError:
+    try:
+        plt.style.use("seaborn-whitegrid")
+    except OSError:
+        pass
+
+# 再应用中文字体配置（确保不被覆盖）
+plot_config.apply_style()
 
 
 def iterative_bias_estimation(
@@ -248,6 +254,39 @@ def plot_problem2_results(
     ax.legend()
     fig.savefig(figures_dir / "Problem2_3D.png", dpi=180)
     plt.close()
+    # ── 导出可视化数据 pkl（供 main.py 统一可视化）──
+    import pickle
+
+    # 计算速度
+    vx_fused = np.gradient(x_fused, t_grid)
+    vy_fused = np.gradient(y_fused, t_grid)
+    speed = np.sqrt(vx_fused**2 + vy_fused**2)
+
+    # 参考轨迹用传感器1去噪后插值
+    x_ref = np.interp(t_grid, t1, x1_d)
+    y_ref = np.interp(t_grid, t1, y1_d)
+
+    result_p2 = {
+        "t1": t1, "x1": x1_d, "y1": y1_d,
+        "t2": t2 - delay, "x2": x2_d, "y2": y2_d,
+        "t_fused": t_grid, "x_fused": x_fused, "y_fused": y_fused,
+        "t_ref": t_grid, "x_ref": x_ref, "y_ref": y_ref,
+        "error_x": x_fused - x_ref,
+        "error_y": y_fused - y_ref,
+        "t_error": t_grid,
+        "speed": speed,
+        "t_speed": t_grid,
+        "bias_x": bias_x_arr,
+        "bias_y": bias_y_arr,
+        "t_bias": t_grid,
+        "bias_true_x": bias_x,
+        "bias_true_y": bias_y,
+    }
+
+    pkl_path = output_dir / "result_problem2.pkl"
+    with open(pkl_path, "wb") as _f:
+        pickle.dump(result_p2, _f, protocol=pickle.HIGHEST_PROTOCOL)
+    print(f"[问题2] 可视化数据已保存 → {pkl_path}")
 
 
 if __name__ == "__main__":
@@ -346,7 +385,8 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("  [Step 6] 自适应观测噪声估计")
     print("=" * 60)
-    R1_est, R2_est = estimate_adaptive_R(t1, x1_d, y1_d, dx, dy)
+    R1_est, R2_est = estimate_adaptive_R(t1, x1_d, y1_d, dx, dy, bias_x=bias_x, bias_y=bias_y, method="mad")
+
     print(f"\n  默认 R1 对角: [{filter_config.R1[0]:.4f}, {filter_config.R1[1]:.4f}]")
     print(f"  自适应 R1:\n{R1_est}")
     print(f"\n  默认 R2 对角: [{filter_config.R2[0]:.4f}, {filter_config.R2[1]:.4f}]")

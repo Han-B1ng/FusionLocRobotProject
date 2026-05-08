@@ -20,7 +20,85 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
+import matplotlib
+import matplotlib.font_manager as fm
+fm._load_fontmanager(try_read_cache=False)
 
+matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "DejaVu Sans"]
+matplotlib.rcParams["font.family"] = "sans-serif"
+matplotlib.rcParams["axes.unicode_minus"] = False
+
+# ============================================================
+#  中文字体自动检测（解决跨平台乱码）
+# ============================================================
+import matplotlib
+import matplotlib.font_manager as fm
+
+def _setup_chinese_font():
+    """自动检测并配置中文字体，兼容 Windows / Linux / macOS。"""
+    # 候选字体列表（按优先级）
+    candidates = [
+        # Windows
+        "SimHei", "Microsoft YaHei", "FangSong", "KaiTi",
+        # macOS
+        "PingFang SC", "Heiti SC", "STHeiti", "Songti SC",
+        # Linux
+        "WenQuanYi Micro Hei", "WenQuanYi Zen Hei",
+        "Noto Sans CJK SC", "Noto Sans SC",
+        "Source Han Sans SC", "Source Han Sans CN",
+        "Droid Sans Fallback", "AR PL UMing CN",
+    ]
+
+    # 获取系统已安装字体名集合
+    installed = {f.name for f in fm.fontManager.ttflist}
+
+    for font_name in candidates:
+        if font_name in installed:
+            matplotlib.rcParams["font.sans-serif"] = [font_name, "DejaVu Sans"]
+            matplotlib.rcParams["font.family"] = "sans-serif"
+            matplotlib.rcParams["axes.unicode_minus"] = False
+            print(f"[config] 中文字体已配置: {font_name}")
+            return font_name
+
+    # 全部未找到：尝试从系统路径直接搜索 ttf
+    import os
+    search_dirs = [
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        os.path.expanduser("~/.fonts"),
+        os.path.expanduser("~/.local/share/fonts"),
+        "C:\\Windows\\Fonts",
+    ]
+    keyword_map = {
+        "simhei": "SimHei", "msyh": "Microsoft YaHei",
+        "wqy": "WenQuanYi Micro Hei", "noto": "Noto Sans CJK SC",
+        "sourcehansans": "Source Han Sans SC",
+        "droid": "Droid Sans Fallback",
+    }
+    for d in search_dirs:
+        if not os.path.isdir(d):
+            continue
+        for root, _, files in os.walk(d):
+            for f in files:
+                if not f.lower().endswith((".ttf", ".ttc", ".otf")):
+                    continue
+                fl = f.lower()
+                for keyword, display_name in keyword_map.items():
+                    if keyword in fl:
+                        font_path = os.path.join(root, f)
+                        fm.fontManager.addfont(font_path)
+                        matplotlib.rcParams["font.sans-serif"] = [display_name, "DejaVu Sans"]
+                        matplotlib.rcParams["font.family"] = "sans-serif"
+                        matplotlib.rcParams["axes.unicode_minus"] = False
+                        print(f"[config] 中文字体已从文件加载: {font_path}")
+                        return display_name
+
+    print("[config] 警告：未找到中文字体，图表中文可能乱码。")
+    print("  建议安装: sudo apt install fonts-wqy-microhei  (Linux)")
+    print("  或: pip install matplotlib-font  (备选)")
+    return None
+
+_detected_font = _setup_chinese_font()
 
 # ╔══ 时间与频率配置 ══╗
 @dataclass(frozen=True)
@@ -176,6 +254,87 @@ class DataPath:
 time_config = TimeConfig()
 filter_config = FilterConfig()
 alignment_config = AlignmentConfig()
+
+# ╔══ 可视化样式配置 ══╗
+@dataclass(frozen=True)
+class PlotConfig:
+    """可视化全局样式配置：配色、字体、线宽、DPI、坐标轴。
+
+    配色方案采用 Nature 色盲友好调色板 (Wong, 2011, Nat Methods)。
+    """
+
+    # --- Nature 色盲友好配色 (Wong 2011) ---
+    COLORS: Tuple[str, ...] = (
+        '#000000',   # 黑      — 原始轨迹 / 基线
+        '#E69F00',   # 橙      — 传感器 1
+        '#56B4E9',   # 天蓝    — 传感器 2
+        '#009E73',   # 蓝绿    — 融合轨迹
+        '#F0E442',   # 黄      — 射击窗口
+        '#0072B2',   # 蓝      — 拍照窗口
+        '#D55E00',   # 朱红    — 冲突 / 丢弃
+        '#CC79A7',   # 粉紫    — 备用
+    )
+
+    # --- 字体 ---
+    font_family: str = 'sans-serif'
+    font_cjk: str = 'SimHei'
+
+    # --- 线宽 ---
+    linewidth: float = 2.0
+    linewidth_thin: float = 1.0
+    linewidth_thick: float = 3.0
+
+    # --- 分辨率 ---
+    dpi: int = 300
+    dpi_high: int = 600
+
+    # --- 坐标轴 ---
+    remove_top_right: bool = True
+    tick_direction: str = 'in'
+    tick_length: float = 4.0
+    tick_width: float = 1.0
+
+    # --- 字号 ---
+    title_fontsize: float = 14
+    label_fontsize: float = 12
+    tick_fontsize: float = 10
+    legend_fontsize: float = 10
+    legend_frameon: bool = False
+
+    @property
+    def rcParams(self) -> dict:
+        """返回 matplotlib.rcParams 字典，供 apply_style() 使用。"""
+        return {
+            'font.family': self.font_family,
+            'font.sans-serif': [self.font_cjk, self.font_family],
+            'axes.unicode_minus': False,
+            'axes.linewidth': 1.0,
+            'axes.spines.top': not self.remove_top_right,
+            'axes.spines.right': not self.remove_top_right,
+            'xtick.direction': self.tick_direction,
+            'ytick.direction': self.tick_direction,
+            'xtick.major.size': self.tick_length,
+            'ytick.major.size': self.tick_length,
+            'xtick.major.width': self.tick_width,
+            'ytick.major.width': self.tick_width,
+            'xtick.labelsize': self.tick_fontsize,
+            'ytick.labelsize': self.tick_fontsize,
+            'legend.fontsize': self.legend_fontsize,
+            'legend.frameon': self.legend_frameon,
+            'figure.dpi': self.dpi,
+            'savefig.dpi': self.dpi,
+            'savefig.bbox': 'tight',
+            'lines.linewidth': self.linewidth,
+        }
+
+    def apply_style(self) -> None:
+        """将样式配置应用到 matplotlib 全局 rcParams。"""
+        import matplotlib.pyplot as plt
+        plt.rcParams.update(self.rcParams)
+
+
+plot_config = PlotConfig()
+
 task_config = TaskConfig()
 data_path = DataPath()
 

@@ -37,9 +37,9 @@ except OSError:
     except OSError:
         pass
 
-# 再设置中文字体
-plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
-plt.rcParams["axes.unicode_minus"] = False
+# 再应用中文字体配置（确保不被覆盖）
+from config import plot_config
+plot_config.apply_style()
 
 
 
