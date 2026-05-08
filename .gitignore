@@ -1,0 +1,11 @@
+# Python 缓存文件
+__pycache__/
+*.pyc
+*.pyo
+
+# 运行生成的输出文件
+output/
+*.xlsx
+*.png
+*.jpg
+*.pdf

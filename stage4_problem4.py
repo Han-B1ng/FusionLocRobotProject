@@ -2,7 +2,7 @@
 # @Author : Han_B1ng
 # @Time : 2026/5/7
 # @Description : 问题4求解：读取轨迹与目标 → 运动状态计算 → 约束检查 → ILP/贪心调度 → 输出结果
-#                 [v3] 核心优化：ILP数学建模 + 全局时间排序 + 角度区间覆盖 + 窗口压缩
+#                 [v4] 调度流程调整：去掉窗口压缩，改用 0.5s 间隔密集采样
 
 """
 ╔══════════════════════════════════════════════════════╗
@@ -13,20 +13,20 @@
   基于问题3输出的10 Hz融合轨迹，对射击和拍照两类任务
   进行可行窗口搜索与最优调度，输出无冲突的任务时刻表。
 
-v3 核心优化：
+v4 核心变更：
   ① ILP数学建模：将调度问题建模为0-1整数规划，最大化任务收益
   ② 冲突判断仅限执行时刻间距（删除 preparation overlap 互斥）
   ③ 全局时间排序调度（非目标优先）
   ④ 拍照方位角区间覆盖策略（12 bin × 30°）
-  ⑤ 窗口压缩：连续合法区间合并为单窗口
+  ⑤ 去掉窗口压缩，改用 step_time=0.5s 间隔密集采样
   ⑥ 自动降级：pulp 不可用时回退到贪心调度
 
 求解流程：
   ① 读取10 Hz融合轨迹（Problem3_10Hz.xlsx）
   ② 读取目标点坐标（每个目标可同时尝试射击和拍照）
   ③ 计算速度、加速度等运动状态量
-  ④ 实例化约束检查器，搜索全部可行时间窗口
-  ⑤ 窗口压缩 + ILP最优调度（或贪心回退）
+  ④ 实例化约束检查器，搜索全部可行时间窗口（0.5s 间隔）
+  ⑤ ILP最优调度（或贪心回退）
   ⑥ 保存结果至Excel，输出汇总信息
 
 依赖模块：config.py → TaskConfig, data_path
@@ -202,7 +202,7 @@ def load_targets() -> list:
 
 
 # ============================================================
-#  窗口压缩：合并连续合法区间为单窗口
+#  窗口压缩（保留函数定义，主流程不再调用）
 # ============================================================
 def compress_windows(windows: list, dt: float) -> list:
     """将连续合法区间合并为单窗口，保留最优执行时刻。
@@ -961,33 +961,26 @@ if __name__ == "__main__":
           f"{TaskConfig.PHOTO_DIST_MAX}] m")
     print(f"  拍照速率上限：{TaskConfig.PHOTO_SPEED_MAX} m/s")
 
-    # ── 5. 搜索可行时间窗口 ──
+    # ── 5. 搜索可行时间窗口（0.5s 间隔密集采样）──
     print("\n" + "=" * 60)
     print("  步骤5：搜索可行时间窗口")
     print("=" * 60)
 
     windows_shoot = checker.find_all_feasible_windows(
-        all_targets, task_type="shoot",
+        all_targets, task_type="shoot", step_time=0.5,
     )
     for w in windows_shoot:
         w["task_type"] = "shoot"
 
     windows_photo = checker.find_all_feasible_windows(
-        all_targets, task_type="photo",
+        all_targets, task_type="photo", step_time=0.5,
     )
     for w in windows_photo:
         w["task_type"] = "photo"
 
-    print(f"  射击可行窗口（原始）：{len(windows_shoot)} 个")
-    print(f"  拍照可行窗口（原始）：{len(windows_photo)} 个")
-
-    # ── 5b. 窗口压缩：合并连续合法区间 ──
-    print("\n  窗口压缩...")
-    dt = checker.dt
-    windows_shoot = compress_windows(windows_shoot, dt)
-    windows_photo = compress_windows(windows_photo, dt)
-    print(f"  射击可行窗口（压缩后）：{len(windows_shoot)} 个")
-    print(f"  拍照可行窗口（压缩后）：{len(windows_photo)} 个")
+    # 不再调用 compress_windows，直接使用全部采样点
+    print(f"  射击可行窗口（0.5s采样）：{len(windows_shoot)} 个")
+    print(f"  拍照可行窗口（0.5s采样）：{len(windows_photo)} 个")
 
     # ── 按目标统计窗口数 ──
     id_to_name = {tgt["id"]: tgt["name"] for tgt in all_targets}

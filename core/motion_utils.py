@@ -78,33 +78,62 @@ def compute_velocity(
 # ============================================================
 #  加速度
 # ============================================================
+import numpy as np
+from scipy.signal import savgol_filter
+
 def compute_acceleration(
     t: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
-    smooth_window: int = 9,
+    window_length: int = 9,
+    polyorder: int = 3,
 ) -> tuple:
-    """从等间距轨迹计算加速度分量与加速度大小。
+    """使用 Savitzky-Golay 滤波计算速度与加速度，抑制噪声放大。
 
-    先计算速度，对速度做移动平均平滑后再差分，
-    避免二阶差分放大残余高频噪声。
+    Parameters
+    ----------
+    t : np.ndarray
+        等间距时间序列 (s)。
+    x, y : np.ndarray
+        坐标序列 (m)。
+    window_length : int
+        SG 滤波窗口长度（奇数），推荐 9~15。
+    polyorder : int
+        多项式阶数，推荐 3。
+
+    Returns
+    -------
+    ax, ay, acc : np.ndarray
+        加速度分量及大小 (m/s²)。
     """
-    vx, vy, _ = compute_velocity(t, x, y)
+    dt = t[1] - t[0]
 
-    # ---- 新增：对速度做移动平均平滑 ----
-    if smooth_window > 1 and len(vx) > smooth_window:
-        kernel = np.ones(smooth_window) / smooth_window
-        # 用 reflect 填充避免边界效应
-        vx_smooth = np.convolve(vx, kernel, mode="same")
-        vy_smooth = np.convolve(vy, kernel, mode="same")
+    # 直接对位置做 SG 滤波得一阶速度、二阶加速度
+    # 若 window_length 太大则自动缩减
+    wl = min(window_length, len(x) - 1)
+    if wl % 2 == 0:
+        wl -= 1
+    if wl < polyorder + 2:
+        # 退化为简单中心差分
+        vx = np.gradient(x, dt)
+        vy = np.gradient(y, dt)
     else:
-        vx_smooth = vx
-        vy_smooth = vy
+        vx = savgol_filter(x, wl, polyorder, deriv=1, delta=dt)
+        vy = savgol_filter(y, wl, polyorder, deriv=1, delta=dt)
 
-    ax, ay, acc = compute_velocity(t, vx_smooth, vy_smooth)
+    # 加速度同样用 SG 滤波
+    wl_a = min(window_length, len(vx) - 1)
+    if wl_a % 2 == 0:
+        wl_a -= 1
+    if wl_a < polyorder + 2:
+        ax = np.gradient(vx, dt)
+        ay = np.gradient(vy, dt)
+    else:
+        ax = savgol_filter(vx, wl_a, polyorder, deriv=1, delta=dt)
+        ay = savgol_filter(vy, wl_a, polyorder, deriv=1, delta=dt)
 
+    acc = np.sqrt(ax ** 2 + ay ** 2)
     return ax, ay, acc
-
 
 
 # ============================================================
