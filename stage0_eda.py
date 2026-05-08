@@ -39,8 +39,7 @@ from config import time_config, data_path
 # ============================================================
 #  全局绘图样式
 # ============================================================
-plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
-plt.rcParams["axes.unicode_minus"] = False
+
 try:
     plt.style.use("seaborn-v0_8-whitegrid")
 except OSError:
@@ -48,7 +47,8 @@ except OSError:
         plt.style.use("seaborn-whitegrid")
     except OSError:
         pass
-
+plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
+plt.rcParams["axes.unicode_minus"] = False
 # 传感器配色
 _COLOR_S1 = "#2563EB"   # 方式1 — 蓝
 _COLOR_S2 = "#DC2626"   # 方式2 — 红
