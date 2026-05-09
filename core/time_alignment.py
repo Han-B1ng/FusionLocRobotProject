@@ -78,6 +78,10 @@ def align_sensors(
         融合后的 X 坐标 (m)。
     y_fused : np.ndarray
         融合后的 Y 坐标 (m)。
+    delays : np.ndarray
+        互相关搜索的候选时偏数组 (s)，用于绘制时间偏差图。
+    scores : np.ndarray
+        各候选时偏对应的加权相关系数，用于绘制时间偏差图。
     """
     # 参数默认值从 config 读取
     if target_freq is None:
@@ -185,7 +189,7 @@ def align_sensors(
         f"频率 = {target_freq:.0f} Hz"
     )
 
-    return delay_fine, t_grid, x_fused, y_fused
+    return delay_fine, t_grid, x_fused, y_fused, delays, scores
 
 
 # ============================================================

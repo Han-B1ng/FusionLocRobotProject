@@ -36,9 +36,8 @@ except OSError:
         plt.style.use("seaborn-whitegrid")
     except OSError:
         pass
-# 中文字体配置已由 config.py 统一处理，此处无需重复设置
-
-
+# 中文字体配置已由 config.py 统一处理
+# 注意：seaborn 样式会覆盖 font.sans-serif，需在 config 导入后重新应用
 # ── 环境准备：确保项目根目录在sys.path中 ──
 _PROJECT_ROOT = Path(__file__).resolve().parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -57,6 +56,7 @@ from config import (
     INTERMEDIATE_DIR,
     ensure_dirs,
 )
+plot_config.apply_style()  # seaborn 覆盖了字体，重新应用中文字体
 
 # ── 日志配置 ──
 logging.basicConfig(
@@ -474,25 +474,26 @@ def run_visualization() -> bool:
                 with open(rpath, "rb") as f:
                     result = pickle.load(f)
 
-                # 轨迹对比
-                _safe_call(
-                    plot_trajectory_comparison,
-                    f"轨迹对比 — 问题 {pnum}",
-                    t1=result.get("t1", np.array([])),
-                    x1=result.get("x1", np.array([])),
-                    y1=result.get("y1", np.array([])),
-                    t2=result.get("t2", np.array([])),
-                    x2=result.get("x2", np.array([])),
-                    y2=result.get("y2", np.array([])),
-                    t_fused=result.get("t_fused"),
-                    x_fused=result.get("x_fused"),
-                    y_fused=result.get("y_fused"),
-                    t_ref=result.get("t_ref"),
-                    x_ref=result.get("x_ref"),
-                    y_ref=result.get("y_ref"),
-                    save_path=figures_dir / f"trajectory_p{pnum}.png",
-                    title=f"问题{pnum} 轨迹对比",
-                )
+                # 轨迹对比（仅问题1保留2D轨迹图，问题2/3使用3D轨迹图）
+                if pnum == 1:
+                    _safe_call(
+                        plot_trajectory_comparison,
+                        f"轨迹对比 — 问题 {pnum}",
+                        t1=result.get("t1", np.array([])),
+                        x1=result.get("x1", np.array([])),
+                        y1=result.get("y1", np.array([])),
+                        t2=result.get("t2", np.array([])),
+                        x2=result.get("x2", np.array([])),
+                        y2=result.get("y2", np.array([])),
+                        t_fused=result.get("t_fused"),
+                        x_fused=result.get("x_fused"),
+                        y_fused=result.get("y_fused"),
+                        t_ref=result.get("t_ref"),
+                        x_ref=result.get("x_ref"),
+                        y_ref=result.get("y_ref"),
+                        save_path=figures_dir / f"trajectory_p{pnum}.png",
+                        title=f"问题{pnum} 轨迹对比",
+                    )
 
                 # 误差时序
                 if "error_x" in result and "error_y" in result:
@@ -529,7 +530,7 @@ def run_visualization() -> bool:
         from visualization.plot_trajectory import plot_velocity_heatmap_trajectory
 
         for pnum in (1, 2, 3):
-            rpath = data_path.output_dir / f"result_problem{pnum}.pkl"
+            rpath = Path(INTERMEDIATE_DIR) / f"result_problem{pnum}.pkl"
             if not rpath.exists():
                 continue
 
@@ -719,7 +720,7 @@ def run_visualization() -> bool:
 
         # 问题 1/2/3 组合图
         for pnum in (1, 2, 3):
-            rpath = data_path.output_dir / f"result_problem{pnum}.pkl"
+            rpath = Path(INTERMEDIATE_DIR) / f"result_problem{pnum}.pkl"
             if rpath.exists():
                 with open(rpath, "rb") as f:
                     result = pickle.load(f)

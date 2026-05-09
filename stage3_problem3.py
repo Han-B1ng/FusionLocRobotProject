@@ -177,20 +177,9 @@ def run_denoise_comparison(x, y, sensor_name):
 
 
 def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias_x_arr, bias_y_arr, dx, dy, delay,
-                          output_dir):
+                          output_dir, cc_delays=None, cc_scores=None, coarse_off=0.0):
     d = Path(PLOT_DIR)
     d.mkdir(exist_ok=True)
-
-    # ── 原有 2D 图 ──
-    fig, ax = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
-    ax[0].scatter(t1, x1, s=3, c=_COLOR_S1, alpha=0.5, label="传感器1 X")
-    ax[0].scatter(t2, x2, s=3, c=_COLOR_S2, alpha=0.5, label="传感器2 X")
-    ax[0].plot(t_grid, x_fused, c=_COLOR_FUSED, lw=1, label="融合 X")
-    ax[1].scatter(t1, y1, s=3, c=_COLOR_S1, alpha=0.5, label="传感器1 Y")
-    ax[1].scatter(t2, y2, s=3, c=_COLOR_S2, alpha=0.5, label="传感器2 Y")
-    ax[1].plot(t_grid, y_fused, c=_COLOR_FUSED, lw=1, label="融合 Y")
-    fig.savefig(d / "Problem3_trajectory.png", dpi=180)
-    plt.close()
 
     # ── 三维轨迹图 ──
     fig = plt.figure(figsize=(12, 8))
@@ -282,6 +271,12 @@ def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias
     x_ref = np.interp(tg, t1, x1_d)
     y_ref = np.interp(tg, t1, y1_d)
 
+    cc_delays_adj = None
+    cc_scores_adj = None
+    if cc_delays is not None and cc_scores is not None:
+        cc_delays_adj = np.asarray(cc_delays) - coarse_off
+        cc_scores_adj = np.asarray(cc_scores)
+
     result_p3 = {
         "t1": t1, "x1": x1_d, "y1": y1_d,
         "t2": t2 - delay, "x2": x2_d, "y2": y2_d,
@@ -297,6 +292,10 @@ def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias
         "t_bias": tg,
         "bias_true_x": bias_x,
         "bias_true_y": bias_y,
+        "delay": delay,
+        "cc_delays": cc_delays_adj,
+        "cc_scores": cc_scores_adj,
+        "t2_orig": t2,
     }
 
     pkl_path = Path(INTERMEDIATE_DIR) / "result_problem3.pkl"
@@ -330,7 +329,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("  [Step 3] 精细时间对齐")
     print("=" * 60)
-    fine_delay, _, _, _ = align_sensors(t1, x1_d, y1_d, t2_shifted, x2_d, y2_d, target_freq=time_config.target_freq)
+    fine_delay, _, _, _, cc_delays, cc_scores = align_sensors(t1, x1_d, y1_d, t2_shifted, x2_d, y2_d, target_freq=time_config.target_freq)
     delay = fine_delay - coarse_off
     print(f"总时间偏差：{delay:.4f} s")
 
@@ -503,7 +502,8 @@ if __name__ == "__main__":
     print(f"BibTeX 已保存至 {output_dir}/references.bib")
 
     # ── 结果可视化 ──
-    plot_problem3_results(t1, x1, y1, t2, x2, y2, tg, xf, yf, bxa, bya, dx, dy, delay, output_dir)
+    plot_problem3_results(t1, x1, y1, t2, x2, y2, tg, xf, yf, bxa, bya, dx, dy, delay, output_dir,
+                          cc_delays=cc_delays, cc_scores=cc_scores, coarse_off=coarse_off)
 
     print("\n" + "=" * 60)
     print("  [Summary] 问题3结果汇总")

@@ -33,81 +33,109 @@ INTERMEDIATE_DIR = os.path.join(OUTPUT_DIR, "intermediate")
 def ensure_dirs():
     for d in [OUTPUT_DIR, TABLE_DIR, PLOT_DIR, INTERMEDIATE_DIR]:
         os.makedirs(d, exist_ok=True)
-fm._load_fontmanager(try_read_cache=False)
-
-matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "DejaVu Sans"]
-matplotlib.rcParams["font.family"] = "sans-serif"
-matplotlib.rcParams["axes.unicode_minus"] = False
-
 # ============================================================
-#  中文字体自动检测（解决跨平台乱码）
+#  中文字体自动检测（解决跨平台乱码 / tofu）
 # ============================================================
-import matplotlib
-import matplotlib.font_manager as fm
+# 策略：优先从系统字体目录按文件名直接加载（最可靠），再回退到名称匹配。
 
 def _setup_chinese_font():
-    """自动检测并配置中文字体，兼容 Windows / Linux / macOS。"""
-    # 候选字体列表（按优先级）
-    candidates = [
-        # Windows
-        "SimHei", "Microsoft YaHei", "FangSong", "KaiTi",
-        # macOS
+    """自动检测并加载中文字体，验证可渲染性后配置 matplotlib。
+
+    直接通过 TTF/TTC 文件路径加载，避免字体名别名、缓存污染等问题。
+    """
+    import os
+    import platform
+
+    # ── 按优先级的 (文件名关键词, 字体显示名, 搜索目录列表) ──
+    _SYSTEM = platform.system()
+    if _SYSTEM == "Windows":
+        font_search_roots = [r"C:\Windows\Fonts"]
+        candidates = [
+            ("simhei", "SimHei"),
+            ("msyh", "Microsoft YaHei"),
+            ("simkai", "KaiTi"),
+            ("simfang", "FangSong"),
+            ("simsun", "SimSun"),
+            ("msjh", "Microsoft JhengHei"),
+        ]
+    elif _SYSTEM == "Darwin":
+        font_search_roots = [
+            "/System/Library/Fonts",
+            "/Library/Fonts",
+            os.path.expanduser("~/Library/Fonts"),
+        ]
+        candidates = [
+            ("PingFang", "PingFang SC"),
+            ("Heiti SC", "Heiti SC"),
+            ("STHeiti", "STHeiti"),
+            ("Songti SC", "Songti SC"),
+        ]
+    else:  # Linux
+        font_search_roots = [
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            os.path.expanduser("~/.fonts"),
+            os.path.expanduser("~/.local/share/fonts"),
+        ]
+        candidates = [
+            ("wqy-microhei", "WenQuanYi Micro Hei"),
+            ("wqy-zenhei", "WenQuanYi Zen Hei"),
+            ("NotoSansCJK", "Noto Sans CJK SC"),
+            ("NotoSansSC", "Noto Sans SC"),
+            ("SourceHanSansSC", "Source Han Sans SC"),
+            ("SourceHanSansCN", "Source Han Sans CN"),
+            ("DroidSansFallback", "Droid Sans Fallback"),
+            ("uming", "AR PL UMing CN"),
+        ]
+
+    # ── Step 1: 从系统字体目录按文件名搜索并加载（按候选优先级） ──
+    # 先收集所有可用的字体文件路径，再按候选优先级匹配
+    all_font_files: list = []
+    for root_dir in font_search_roots:
+        if not os.path.isdir(root_dir):
+            continue
+        for base, _dirs, files in os.walk(root_dir):
+            for fname in files:
+                if fname.lower().endswith((".ttf", ".ttc", ".otf")):
+                    all_font_files.append((fname.lower(), os.path.join(base, fname)))
+
+    for kw, display_name in candidates:
+        for fl, font_path in all_font_files:
+            if kw in fl:
+                try:
+                    fm.fontManager.addfont(font_path)
+                    matplotlib.rcParams["font.sans-serif"] = [display_name, "DejaVu Sans"]
+                    matplotlib.rcParams["font.family"] = "sans-serif"
+                    matplotlib.rcParams["axes.unicode_minus"] = False
+                    print(f"[config] 中文字体已从文件加载: {font_path} -> {display_name}")
+                    return display_name
+                except Exception:
+                    continue
+
+    # ── Step 2: 回退 — 名称匹配（fontManager 已在 Step 1 中加载了系统字体） ──
+    installed = {f.name for f in fm.fontManager.ttflist}
+    name_priority = [
+        "SimHei", "Microsoft YaHei", "FangSong", "KaiTi", "SimSun",
         "PingFang SC", "Heiti SC", "STHeiti", "Songti SC",
-        # Linux
         "WenQuanYi Micro Hei", "WenQuanYi Zen Hei",
         "Noto Sans CJK SC", "Noto Sans SC",
         "Source Han Sans SC", "Source Han Sans CN",
         "Droid Sans Fallback", "AR PL UMing CN",
     ]
-
-    # 获取系统已安装字体名集合
-    installed = {f.name for f in fm.fontManager.ttflist}
-
-    for font_name in candidates:
+    for font_name in name_priority:
         if font_name in installed:
             matplotlib.rcParams["font.sans-serif"] = [font_name, "DejaVu Sans"]
             matplotlib.rcParams["font.family"] = "sans-serif"
             matplotlib.rcParams["axes.unicode_minus"] = False
-            print(f"[config] 中文字体已配置: {font_name}")
+            print(f"[config] 中文字体已配置 (名称匹配): {font_name}")
             return font_name
 
-    # 全部未找到：尝试从系统路径直接搜索 ttf
-    import os
-    search_dirs = [
-        "/usr/share/fonts",
-        "/usr/local/share/fonts",
-        os.path.expanduser("~/.fonts"),
-        os.path.expanduser("~/.local/share/fonts"),
-        "C:\\Windows\\Fonts",
-    ]
-    keyword_map = {
-        "simhei": "SimHei", "msyh": "Microsoft YaHei",
-        "wqy": "WenQuanYi Micro Hei", "noto": "Noto Sans CJK SC",
-        "sourcehansans": "Source Han Sans SC",
-        "droid": "Droid Sans Fallback",
-    }
-    for d in search_dirs:
-        if not os.path.isdir(d):
-            continue
-        for root, _, files in os.walk(d):
-            for f in files:
-                if not f.lower().endswith((".ttf", ".ttc", ".otf")):
-                    continue
-                fl = f.lower()
-                for keyword, display_name in keyword_map.items():
-                    if keyword in fl:
-                        font_path = os.path.join(root, f)
-                        fm.fontManager.addfont(font_path)
-                        matplotlib.rcParams["font.sans-serif"] = [display_name, "DejaVu Sans"]
-                        matplotlib.rcParams["font.family"] = "sans-serif"
-                        matplotlib.rcParams["axes.unicode_minus"] = False
-                        print(f"[config] 中文字体已从文件加载: {font_path}")
-                        return display_name
-
     print("[config] 警告：未找到中文字体，图表中文可能乱码。")
-    print("  建议安装: sudo apt install fonts-wqy-microhei  (Linux)")
-    print("  或: pip install matplotlib-font  (备选)")
+    print("  Windows: 检查 C:\\Windows\\Fonts\\simhei.ttf 是否存在")
+    print("  Linux:   sudo apt install fonts-wqy-microhei")
+    print("  macOS:   系统应自带 PingFang SC")
     return None
+
 
 _detected_font = _setup_chinese_font()
 
@@ -288,7 +316,12 @@ class PlotConfig:
 
     # --- 字体 ---
     font_family: str = 'sans-serif'
-    font_cjk: str = 'SimHei'
+    font_cjk: str = _detected_font or 'SimHei'
+
+    @property
+    def CN_FONT(self) -> str:
+        """向后兼容别名，返回当前 CJK 字体名。"""
+        return self.font_cjk
 
     # --- 线宽 ---
     linewidth: float = 2.0
@@ -317,7 +350,7 @@ class PlotConfig:
         """返回 matplotlib.rcParams 字典，供 apply_style() 使用。"""
         return {
             'font.family': self.font_family,
-            'font.sans-serif': [self.font_cjk, self.font_family],
+            'font.sans-serif': [self.font_cjk, 'DejaVu Sans'],
             'axes.unicode_minus': False,
             'axes.linewidth': 1.0,
             'axes.spines.top': not self.remove_top_right,

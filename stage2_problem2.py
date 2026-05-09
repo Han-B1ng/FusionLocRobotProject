@@ -198,25 +198,6 @@ def plot_problem2_results(
     figures_dir = Path(PLOT_DIR)
     figures_dir.mkdir(exist_ok=True)
 
-    # ---- 原有 2D 图 ----
-    fig, axes = plt.subplots(2, 1, figsize=(14,10), sharex=True)
-    axes[0].scatter(t1, x1, s=3, color=_COLOR_S1, alpha=0.5, label="传感器1 X")
-    axes[0].scatter(t2, x2, s=3, color=_COLOR_S2, alpha=0.5, label="传感器2 X")
-    axes[0].plot(t_grid, x_fused, color=_COLOR_FUSED, lw=1, label="融合 X")
-    axes[0].set_ylabel("X (m)")
-    axes[0].set_title(f"问题2 轨迹（延迟={delay:.4f}s）")
-    axes[0].legend()
-
-    axes[1].scatter(t1, y1, s=3, color=_COLOR_S1, alpha=0.5, label="传感器1 Y")
-    axes[1].scatter(t2, y2, s=3, color=_COLOR_S2, alpha=0.5, label="传感器2 Y")
-    axes[1].plot(t_grid, y_fused, color=_COLOR_FUSED, lw=1, label="融合 Y")
-    axes[1].set_ylabel("Y (m)")
-    axes[1].set_xlabel("Time (s)")
-    axes[1].legend()
-    fig.tight_layout()
-    fig.savefig(figures_dir / "Problem2_trajectory.png", dpi=180)
-    plt.close()
-
     fig, axes = plt.subplots(1,2,figsize=(12,5))
     axes[0].hist(dx, bins=50, color=_COLOR_S1, alpha=0.7)
     axes[0].axvline(np.median(dx), c='r', ls='--', label=f"median={np.median(dx):.3f}")
@@ -281,6 +262,10 @@ def plot_problem2_results(
         "t_bias": t_grid,
         "bias_true_x": bias_x,
         "bias_true_y": bias_y,
+        "delay": delay,
+        "cc_delays": cc_delays,
+        "cc_scores": cc_scores,
+        "t2_orig": t2,
     }
 
     pkl_path = Path(INTERMEDIATE_DIR) / "result_problem2.pkl"
@@ -314,7 +299,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("  [Step 3] 时间对齐")
     print("=" * 60)
-    delay, t_align, x_fused_init, y_fused_init = align_sensors(
+    delay, t_align, x_fused_init, y_fused_init, cc_delays, cc_scores = align_sensors(
         t1, x1_d, y1_d, t2, x2_d, y2_d,
         target_freq=time_config.target_freq,
         delay_range=alignment_config.delay_range,

@@ -44,7 +44,7 @@ _JOURNAL_RC: Dict[str, Any] = {
 
     # ---- 字体 ----
     "font.family":        "sans-serif",
-    "font.sans-serif":    ["SimHei", "Microsoft YaHei", "STSong", "Source Han Serif SC", "DejaVu Sans"],
+    "font.sans-serif":    [plot_config.font_cjk, "Microsoft YaHei", "STSong", "Source Han Serif SC", "DejaVu Sans"],
     "mathtext.fontset":   "cm",
     # ---- 字号 ----
     "font.size":          9,
@@ -140,6 +140,70 @@ def _extract_task_field(task: Any, *candidates: str, default: Any = None) -> Any
     return default
 
 
+def _compute_cross_corr(
+    t1: np.ndarray,
+    x1: np.ndarray,
+    y1: np.ndarray,
+    t2: np.ndarray,
+    x2: np.ndarray,
+    y2: np.ndarray,
+    delay_range: Tuple[float, float] = (-2.0, 2.0),
+    n_steps: int = 200,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """从两组传感器数据实时计算互相关曲线。
+
+    将两组数据插值到公共网格后，扫描候选时偏计算加权相关系数。
+    """
+    t1 = np.asarray(t1, dtype=np.float64)
+    t2 = np.asarray(t2, dtype=np.float64)
+    x1 = np.asarray(x1, dtype=np.float64)
+    y1 = np.asarray(y1, dtype=np.float64)
+    x2 = np.asarray(x2, dtype=np.float64)
+    y2 = np.asarray(y2, dtype=np.float64)
+
+    t_start = max(t1.min(), t2.min())
+    t_end = min(t1.max(), t2.max())
+    if t_end - t_start < 1.0:
+        return np.array([]), np.array([])
+
+    dt = 0.1
+    t_grid = np.arange(t_start, t_end, dt)
+
+    x1g = np.interp(t_grid, t1, x1)
+    y1g = np.interp(t_grid, t1, y1)
+    x2g = np.interp(t_grid, t2, x2)
+    y2g = np.interp(t_grid, t2, y2)
+
+    delays = np.linspace(delay_range[0], delay_range[1], n_steps)
+    scores = np.zeros(len(delays))
+
+    for i, delta in enumerate(delays):
+        t_shifted = t_grid - delta
+        mask = (t_shifted >= t_grid[0]) & (t_shifted <= t_grid[-1])
+        n_overlap = int(np.sum(mask))
+        if n_overlap < 10:
+            scores[i] = -np.inf
+            continue
+
+        x2s = np.interp(t_shifted[mask], t_grid, x2g)
+        y2s = np.interp(t_shifted[mask], t_grid, y2g)
+        x1s = x1g[mask]
+        y1s = y1g[mask]
+
+        # Pearson correlation
+        def _pearson(a, b):
+            a_c = a - np.mean(a)
+            b_c = b - np.mean(b)
+            denom = np.sqrt(np.sum(a_c ** 2) * np.sum(b_c ** 2))
+            if denom < 1e-15:
+                return 0.0
+            return float(np.sum(a_c * b_c) / denom)
+
+        scores[i] = 0.5 * _pearson(x1s, x2s) + 0.5 * _pearson(y1s, y2s)
+
+    return delays, scores
+
+
 # ============================================================
 #  1. 问题 1/2/3 四合一组合图
 # ============================================================
@@ -156,7 +220,7 @@ def summary_figure_paper(
         ┌──────────────┬──────────────┐
         │  左上: 轨迹   │  右上: 误差   │
         ├──────────────┼──────────────┤
-        │  左下: 速度   │  右下: 偏差   │
+        │  左下: 时偏   │  右下: 偏差   │
         └──────────────┴──────────────┘
 
     Parameters
@@ -176,10 +240,12 @@ def summary_figure_paper(
             't_error'                  : np.ndarray — 误差时间轴
                                         (默认与 t_fused 相同)
 
-            # ---- 可选（左下速度图）----
-            'speed'                    : np.ndarray — 合成速率 (m/s)
-            't_speed'                  : np.ndarray — 速度时间轴
-            'speed_limit'              : float — 速度限制线
+            # ---- 可选（左下时偏图）----
+            'cc_delays'                : np.ndarray — 互相关候选时偏 (s)
+            'cc_scores'                : np.ndarray — 加权相关系数
+            'delay'                    : float — 估计时间偏差 (s)
+            't2_orig'                  : np.ndarray — 传感器2原始时间戳,
+                                        用于实时计算互相关
 
             # ---- 可选（右下偏差图）----
             'bias_x', 'bias_y'        : np.ndarray — 偏差估计序列
@@ -198,6 +264,7 @@ def summary_figure_paper(
     -----
     - 300 DPI 输出，字体适配期刊（Times New Roman + 宋体）。
     - 各子图独立图例，不互相干扰。
+    - 时偏子图（左下）显示互相关曲线与估计时间偏差。
     - 偏差子图（右下）仅在 problem_num >= 2 且提供偏差数据时显示。
     """
     # ---- 解析保存路径 ----
@@ -228,7 +295,6 @@ def summary_figure_paper(
 
     has_ref = all(k in data_dict for k in ("t_ref", "x_ref", "y_ref"))
     has_error = all(k in data_dict for k in ("error_x", "error_y"))
-    has_speed = "speed" in data_dict
     has_bias = all(k in data_dict for k in ("bias_x", "bias_y"))
     show_bias = problem_num >= 2 and has_bias
 
@@ -319,37 +385,43 @@ def summary_figure_paper(
     ax_err.legend(loc="upper left", fontsize=7)
 
     # ==========================================================
-    #  左下：速度曲线
+    #  左下：时间偏差估计（互相关曲线）
     # ==========================================================
-    if has_speed:
-        t_spd = np.asarray(data_dict.get("t_speed", t_fused))
-        spd = np.asarray(data_dict["speed"])
+    has_cc = all(k in data_dict for k in ("cc_delays", "cc_scores"))
+    if has_cc:
+        cc_d = np.asarray(data_dict["cc_delays"])
+        cc_s = np.asarray(data_dict["cc_scores"])
+    else:
+        # 若无预存互相关数据，从传感器数据实时计算
+        cc_d, cc_s = _compute_cross_corr(
+            t1, x1, y1,
+            data_dict.get("t2_orig", t2), x2, y2,
+        )
 
-        ax_speed.plot(t_spd, spd, color=_C_BLUE, linewidth=0.6, alpha=0.85)
+    if cc_d is not None and cc_s is not None and len(cc_d) > 0:
+        ax_speed.plot(cc_d, cc_s, color=_C_BLUE, linewidth=0.6, alpha=0.85)
 
-        spd_limit = data_dict.get("speed_limit", None)
-        if spd_limit is not None:
-            ax_speed.axhline(
-                spd_limit, color=_C_RED, linewidth=0.5, linestyle="--",
-                label=f"$v_{{max}}$={spd_limit:.1f} m/s",
-            )
-            ax_speed.legend(loc="upper right", fontsize=7)
+        best_idx = np.argmax(cc_s)
+        ax_speed.axvline(cc_d[best_idx], color=_C_RED, linewidth=0.5,
+                         linestyle="--", alpha=0.7)
+        ax_speed.plot(cc_d[best_idx], cc_s[best_idx], "o",
+                      color=_C_RED, markersize=5, markeredgecolor="white",
+                      markeredgewidth=0.5, zorder=5)
 
-        # 填充均值区域
-        spd_mean = np.mean(spd)
-        ax_speed.axhline(spd_mean, color=_C_GRAY, linewidth=0.3, linestyle=":")
+        delay_val = data_dict.get("delay", cc_d[best_idx])
         ax_speed.text(
-            t_spd[-1], spd_mean, f" $\\bar{{v}}$={spd_mean:.2f}",
-            fontsize=7, va="bottom", color=_C_GRAY,
+            0.97, 0.97, f"$\\Delta t$ = {delay_val:+.4f} s",
+            transform=ax_speed.transAxes, fontsize=7,
+            va="top", ha="right", family="monospace",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.85),
         )
     else:
-        ax_speed.text(0.5, 0.5, "无速度数据", transform=ax_speed.transAxes,
+        ax_speed.text(0.5, 0.5, "无互相关数据", transform=ax_speed.transAxes,
                       fontsize=9, ha="center", va="center", color=_C_GRAY)
 
-    ax_speed.set_xlabel("$t$ (s)")
-    ax_speed.set_ylabel("$v$ (m/s)")
-    ax_speed.set_title("(c) 速度曲线", fontsize=10, fontweight="bold")
-    ax_speed.set_ylim(bottom=0)
+    ax_speed.set_xlabel("候选时偏 $\\Delta$ (s)")
+    ax_speed.set_ylabel("加权相关系数")
+    ax_speed.set_title("(c) 时间偏差估计", fontsize=10, fontweight="bold")
 
     # ==========================================================
     #  右下：系统偏差收敛曲线（仅问题 2/3）

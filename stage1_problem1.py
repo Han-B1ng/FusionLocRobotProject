@@ -152,6 +152,55 @@ def save_result(
 
 
 # ============================================================
+#  绘图：时间偏差估计（互相关曲线）
+# ============================================================
+def plot_time_deviation(
+    delays: np.ndarray,
+    scores: np.ndarray,
+    delay_fine: float,
+    output_path: Path,
+) -> None:
+    """绘制时间偏差估计图——互相关曲线 + 最优时偏标记。
+
+    Parameters
+    ----------
+    delays : np.ndarray
+        候选时偏数组 (s)。
+    scores : np.ndarray
+        各候选时偏对应的加权相关系数。
+    delay_fine : float
+        精化后的最优时偏估计值 (s)。
+    output_path : Path
+        图片保存路径。
+    """
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    ax.plot(delays, scores, color=_COLOR_S1, linewidth=1.0, alpha=0.9)
+    ax.axvline(delay_fine, color=_COLOR_S2, linewidth=1.5,
+               linestyle="--", alpha=0.85,
+               label=f"估计时偏 = {delay_fine:+.4f} s")
+    ax.axvline(0, color="gray", linewidth=0.6, linestyle=":", alpha=0.6)
+
+    best_idx = np.argmax(scores)
+    ax.plot(delays[best_idx], scores[best_idx], "o",
+            color=_COLOR_S2, markersize=8, markeredgecolor="white",
+            markeredgewidth=1.0, zorder=5)
+
+    ax.set_xlabel("候选时偏 (s)", fontsize=12)
+    ax.set_ylabel("加权相关系数", fontsize=12)
+    ax.set_title("问题1 — 时间偏差估计（互相关曲线）",
+                 fontsize=14, fontweight="bold")
+    ax.legend(loc="best", fontsize=10)
+    ax.set_xlim(delays[0], delays[-1])
+
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[stage1] 已保存：{output_path}")
+
+
+# ============================================================
 #  绘图：对齐前后对比
 # ============================================================
 def plot_comparison(
@@ -216,7 +265,7 @@ if __name__ == "__main__":
 
     # ── 2. 时间对齐与等权融合 ──
     # 问题1无噪声，采用等权融合（w1=w2=0.5）
-    delay_fine, t_grid, x_fused, y_fused = align_sensors(
+    delay_fine, t_grid, x_fused, y_fused, delays, scores = align_sensors(
         t1, x1, y1,
         t2, x2, y2,
         target_freq=time_config.target_freq,
@@ -239,7 +288,11 @@ if __name__ == "__main__":
     output_xlsx = Path(TABLE_DIR) / "Problem1_10Hz.xlsx"
     save_result(t_grid, x_fused, y_fused, output_xlsx)
 
-    # ── 5. 绘制对齐前后对比图 ──
+    # ── 5. 绘制时间偏差图 ──
+    output_td = Path(PLOT_DIR) / "Problem1_time_deviation.png"
+    plot_time_deviation(delays, scores, delay_fine, output_td)
+
+    # ── 6. 绘制对齐前后对比图 ──
     output_fig = Path(PLOT_DIR) / "Problem1_trajectory.png"
     plot_comparison(
         t1, x1, y1,
@@ -248,5 +301,34 @@ if __name__ == "__main__":
         delay_fine,
         output_fig,
     )
+
+    # ── 7. 导出可视化数据 pkl（供 main.py 统一可视化）──
+    import pickle
+    from config import INTERMEDIATE_DIR
+
+    vx = np.gradient(x_fused, t_grid)
+    vy = np.gradient(y_fused, t_grid)
+    speed = np.sqrt(vx**2 + vy**2)
+
+    result_p1 = {
+        "t1": t1, "x1": x1, "y1": y1,
+        "t2": t2, "x2": x2, "y2": y2,
+        "t_fused": t_grid, "x_fused": x_fused, "y_fused": y_fused,
+        "t_ref": t1, "x_ref": x1, "y_ref": y1,
+        "error_x": x_fused - np.interp(t_grid, t1, x1),
+        "error_y": y_fused - np.interp(t_grid, t1, y1),
+        "t_error": t_grid,
+        "speed": speed,
+        "t_speed": t_grid,
+        "delay": delay_fine,
+        "cc_delays": delays,
+        "cc_scores": scores,
+        "t2_orig": t2,
+    }
+
+    pkl_path = Path(INTERMEDIATE_DIR) / "result_problem1.pkl"
+    with open(pkl_path, "wb") as _f:
+        pickle.dump(result_p1, _f, protocol=pickle.HIGHEST_PROTOCOL)
+    print(f"[stage1] 可视化数据已保存 → {pkl_path}")
 
     print("\n[stage1] 问题1求解完毕。")

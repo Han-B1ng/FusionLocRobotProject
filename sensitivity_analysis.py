@@ -181,7 +181,7 @@ def preprocess_pipeline(
     print("  [预处理] 时间对齐（仅一次）")
     print("=" * 60)
 
-    delay, _, _, _ = align_sensors(
+    delay, _, _, _, _, _ = align_sensors(
         t1, x1_d, y1_d, t2, x2_d, y2_d,
         target_freq=time_config.target_freq,
         delay_range=alignment_config.delay_range,

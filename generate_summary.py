@@ -48,7 +48,11 @@ from config import (
     time_config,
     TABLE_DIR,
     ensure_dirs,
+    _detected_font,
 )
+
+# 使用系统检测到的中文字体（openpyxl 用）
+_DETECTED_CJK = _detected_font or "SimHei"
 
 # ============================================================
 #  Excel 样式
@@ -140,7 +144,7 @@ def _extract_problem1_data() -> Dict[str, str]:
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        delay_fine, t_grid, _, _ = align_sensors(
+        delay_fine, t_grid, _, _, _, _ = align_sensors(
             t1, x1, y1, t2, x2, y2,
             target_freq=time_config.target_freq,
             delay_range=alignment_config.delay_range,
@@ -197,7 +201,7 @@ def _extract_problem2_data() -> Dict[str, str]:
     # 时间对齐
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        delay, _, _, _ = align_sensors(
+        delay, _, _, _, _, _ = align_sensors(
             t1, x1_d, y1_d, t2, x2_d, y2_d,
             target_freq=time_config.target_freq,
             delay_range=alignment_config.delay_range,
@@ -316,7 +320,7 @@ def _extract_problem3_data() -> Dict[str, str]:
     t2_shifted = t2 + coarse_off
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fine_delay, _, _, _ = align_sensors(
+        fine_delay, _, _, _, _, _ = align_sensors(
             t1, x1_d, y1_d, t2_shifted, x2_d, y2_d,
             target_freq=time_config.target_freq,
         )

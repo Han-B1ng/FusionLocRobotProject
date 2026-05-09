@@ -12,7 +12,10 @@
       "Bash(python stage3_problem3.py)",
       "Bash(python stage4_problem4.py)",
       "Bash(python generate_tables.py)",
-      "Bash(python generate_summary.py)"
+      "Bash(python generate_summary.py)",
+      "Bash(python3 -c \"import matplotlib.font_manager as fm; fm._load_fontmanager\\(try_read_cache=False\\); fonts = [f.name for f in fm.fontManager.ttflist]; print\\('\\\\n'.join\\(sorted\\(set\\(fonts\\)\\)\\)\\)\")",
+      "Bash(python -c \"import matplotlib.font_manager as fm; fm._load_fontmanager\\(try_read_cache=False\\); fonts = [f.name for f in fm.fontManager.ttflist]; print\\('\\\\n'.join\\(sorted\\(set\\(fonts\\)\\)\\)\\)\")",
+      "Bash(python *)"
     ]
   }
 }
