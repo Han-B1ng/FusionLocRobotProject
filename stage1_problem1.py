@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from config import data_path, time_config, alignment_config, plot_config
+from config import data_path, time_config, alignment_config, plot_config, TABLE_DIR, PLOT_DIR, ensure_dirs
 from core.time_alignment import align_sensors
 
 # ============================================================
@@ -236,11 +236,11 @@ if __name__ == "__main__":
     print("=" * 50)
 
     # ── 4. 保存10 Hz融合轨迹 ──
-    output_xlsx = data_path.output_dir / "Problem1_10Hz.xlsx"
+    output_xlsx = Path(TABLE_DIR) / "Problem1_10Hz.xlsx"
     save_result(t_grid, x_fused, y_fused, output_xlsx)
 
     # ── 5. 绘制对齐前后对比图 ──
-    output_fig = data_path.output_dir / "figures" / "Problem1_trajectory.png"
+    output_fig = Path(PLOT_DIR) / "Problem1_trajectory.png"
     plot_comparison(
         t1, x1, y1,
         t2, x2, y2,

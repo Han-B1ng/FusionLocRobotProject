@@ -11,7 +11,7 @@
 功能概述：
   ① 加载附件1~3，自动识别Excel（双sheet）/CSV格式
   ② 数据质量检查：时间单调性、采样间隔、坐标突跳
-  ③ 绘制原始轨迹并保存至output/figures/
+  ③ 绘制原始轨迹并保存至output/plots/
   ④ 序列化数据字典为cleaned_data.pkl
 
 依赖模块：config.py → time_config, data_path
@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from config import time_config, data_path
+from config import time_config, data_path, PLOT_DIR, INTERMEDIATE_DIR, ensure_dirs
 
 # 应用中文字体配置
 import matplotlib.pyplot as plt
@@ -291,7 +291,7 @@ def plot_raw_data(
     布局：2×1子图，上方为X-t，下方为Y-t。
     配色：方式1（蓝#2563EB），方式2（红#DC2626）。
     """
-    figures_dir = output_dir / "figures"
+    figures_dir = Path(PLOT_DIR)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     for att_id in ATTACHMENT_IDS:
@@ -351,7 +351,7 @@ def save_cleaned_data(
     下游stage1~4通过pickle.load()读取，避免重复解析原始文件。
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    save_path = output_dir / "cleaned_data.pkl"
+    save_path = Path(INTERMEDIATE_DIR) / "cleaned_data.pkl"
 
     with open(save_path, "wb") as f:
         pickle.dump(data_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -364,8 +364,9 @@ def save_cleaned_data(
 #  主入口
 # ============================================================
 if __name__ == "__main__":
+    ensure_dirs()
     output_dir = data_path.output_dir
-    figures_dir = output_dir / "figures"
+    figures_dir = Path(PLOT_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
 

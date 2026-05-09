@@ -16,6 +16,7 @@ visualization/plot_trajectory.py
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -25,7 +26,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # ========== 改动 A —— 新增 import ==========
-from config import plot_config
+from config import plot_config, PLOT_DIR
 # ===========================================
 
 # ============================================================
@@ -87,7 +88,7 @@ def plot_trajectory_comparison(
     t_ref: Optional[np.ndarray] = None,
     x_ref: Optional[np.ndarray] = None,
     y_ref: Optional[np.ndarray] = None,
-    save_path: Union[str, Path] = "output/figures/trajectory_comparison.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "trajectory_comparison.png"),
     title: str = "轨迹对比",
     mark_endpoints: bool = True,
 ) -> None:
@@ -181,7 +182,7 @@ def plot_error_time_series(
     t: np.ndarray,
     error_x: np.ndarray,
     error_y: np.ndarray,
-    save_path: Union[str, Path] = "output/figures/error_timeseries.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "error_timeseries.png"),
     title: str = "融合轨迹误差",
     error_ref_x: Optional[np.ndarray] = None,
     error_ref_y: Optional[np.ndarray] = None,
@@ -286,7 +287,7 @@ def plot_error_time_series(
 def plot_velocity_profile(
     t: np.ndarray,
     speed: np.ndarray,
-    save_path: Union[str, Path] = "output/figures/velocity_profile.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "velocity_profile.png"),
     title: str = "融合轨迹速度曲线",
     task_windows: Optional[List[Dict[str, float]]] = None,
     speed_limit: Optional[float] = None,
@@ -396,7 +397,7 @@ def plot_velocity_heatmap_trajectory(
     x: np.ndarray,
     y: np.ndarray,
     speed: np.ndarray,
-    save_path: Union[str, Path] = "output/figures/velocity_heatmap.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "velocity_heatmap.png"),
     title: str = "速度热力轨迹",
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,

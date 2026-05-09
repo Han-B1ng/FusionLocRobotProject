@@ -15,6 +15,7 @@ visualization/plot_eda.py
 
 from __future__ import annotations
 
+import os
 import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
@@ -38,7 +39,7 @@ except OSError:
         pass
 
 # 再应用中文字体配置（确保不被覆盖）
-from config import plot_config
+from config import plot_config, PLOT_DIR
 plot_config.apply_style()
 
 
@@ -86,7 +87,7 @@ def plot_time_series(
     title : str
         图表总标题。
     save_path : str 或 Path
-        图片保存路径（含文件名及后缀，如 ``output/figures/eda_ts.png``）。
+        图片保存路径（含文件名及后缀，如 ``output/plots/eda_ts.png``）。
 
     Notes
     -----

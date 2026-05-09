@@ -15,6 +15,7 @@ visualization/plot_sensitivity_analysis.py
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -23,7 +24,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from config import plot_config
+from config import plot_config, PLOT_DIR
 # 应用中文字体配置
 plot_config.apply_style()
 
@@ -43,7 +44,7 @@ def plot_sensitivity_single(
     param_name: str,
     param_values: np.ndarray,
     metrics: Dict[str, np.ndarray],
-    save_path: Union[str, Path] = "output/figures/sensitivity_single.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "sensitivity_single.png"),
     title: Optional[str] = None,
     xlabel: Optional[str] = None,
     ylabel: str = "指标值",
@@ -230,7 +231,7 @@ def plot_sensitivity_heatmap(
     param2_name: str,
     param2_values: np.ndarray,
     metric_matrix: np.ndarray,
-    save_path: Union[str, Path] = "output/figures/sensitivity_heatmap.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "sensitivity_heatmap.png"),
     title: Optional[str] = None,
     metric_name: str = "指标值",
     cmap_name: str = "YlOrRd",
@@ -367,7 +368,7 @@ def plot_tradeoff_curve(
     param_values: np.ndarray,
     x_label: str = "指标 X",
     y_label: str = "指标 Y",
-    save_path: Union[str, Path] = "output/figures/tradeoff_curve.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "tradeoff_curve.png"),
     title: str = "多目标 Trade-off 曲线",
     param_label: str = "参数值",
     pareto_highlight: bool = True,
@@ -513,7 +514,7 @@ def plot_tradeoff_curve(
 #  自检
 # ============================================================
 if __name__ == "__main__":
-    out = Path("output/figures")
+    out = Path(PLOT_DIR)
     out.mkdir(parents=True, exist_ok=True)
 
     # ---- 示例 1：单参数扫描 ----

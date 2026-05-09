@@ -19,6 +19,7 @@ visualization/plot_case_study.py
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -28,7 +29,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import FancyArrowPatch, Wedge
 
-from config import plot_config
+from config import plot_config, PLOT_DIR
 # 应用中文字体配置
 plot_config.apply_style()
 
@@ -125,7 +126,7 @@ def plot_case_study(
     task_type: str = "shoot",
     t_exec: Optional[float] = None,
     window: float = 30.0,
-    save_path: Union[str, Path] = "output/figures/case_study.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "case_study.png"),
     title: Optional[str] = None,
     fov_angle: float = 60.0,
     dist_min: Optional[float] = None,
@@ -505,7 +506,7 @@ def plot_case_study(
 #  自检
 # ============================================================
 if __name__ == "__main__":
-    out = Path("output/figures")
+    out = Path(PLOT_DIR)
     out.mkdir(parents=True, exist_ok=True)
 
     # ---- 生成模拟轨迹数据 ----

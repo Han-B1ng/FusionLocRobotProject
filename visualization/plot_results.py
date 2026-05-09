@@ -16,6 +16,7 @@ visualization/plot_results.py
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -26,7 +27,7 @@ import numpy as np
 from matplotlib.patches import FancyArrowPatch, Rectangle
 
 # ========== 改动 A —— 新增 import ==========
-from config import plot_config
+from config import plot_config, PLOT_DIR
 # ===========================================
 
 # ============================================================
@@ -96,7 +97,7 @@ def plot_tasks_on_trajectory(
     traj_x: np.ndarray,
     traj_y: np.ndarray,
     tasks: List[Any],
-    save_path: Union[str, Path] = "output/figures/tasks_on_trajectory.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "tasks_on_trajectory.png"),
     t: Optional[np.ndarray] = None,
     targets: Optional[np.ndarray] = None,
     title: str = "任务执行位置",
@@ -260,7 +261,7 @@ def plot_tasks_on_trajectory(
 # ============================================================
 def plot_task_gantt(
     tasks: List[Any],
-    save_path: Union[str, Path] = "output/figures/task_gantt.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "task_gantt.png"),
     title: str = "任务调度甘特图",
 ) -> None:
     """绘制任务调度甘特图：横轴时间、纵轴任务，区分准备与执行时段。
@@ -408,7 +409,7 @@ def plot_task_gantt(
 def plot_heading_diversity(
     target_id: Union[int, str],
     headings: np.ndarray,
-    save_path: Union[str, Path] = "output/figures/heading_diversity.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "heading_diversity.png"),
     title: Optional[str] = None,
     min_angle_diff: float = 60.0,
 ) -> None:
@@ -574,7 +575,7 @@ def plot_heading_diversity(
 # ============================================================
 def plot_task_gantt_enhanced(
     tasks: List[Any],
-    save_path: Union[str, Path] = "output/figures/task_gantt_enhanced.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "task_gantt_enhanced.png"),
     title: str = "任务调度甘特图（增强版）",
     candidate_windows: Optional[List[Dict[str, Any]]] = None,
 ) -> None:

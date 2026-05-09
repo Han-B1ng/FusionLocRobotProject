@@ -34,7 +34,7 @@ import pandas as pd
 # ── 三维绘图支持 ──
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-from config import alignment_config, data_path, filter_config, time_config, plot_config
+from config import alignment_config, data_path, filter_config, time_config, plot_config, TABLE_DIR, PLOT_DIR, INTERMEDIATE_DIR, ensure_dirs
 from core.kalman_filters import estimate_adaptive_R, fuse_sensors
 from core.robust_stats import (
     bias_significance_test,
@@ -178,7 +178,7 @@ def run_denoise_comparison(x, y, sensor_name):
 
 def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias_x_arr, bias_y_arr, dx, dy, delay,
                           output_dir):
-    d = output_dir / "figures"
+    d = Path(PLOT_DIR)
     d.mkdir(exist_ok=True)
 
     # ── 原有 2D 图 ──
@@ -299,15 +299,14 @@ def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias
         "bias_true_y": bias_y,
     }
 
-    pkl_path = output_dir / "result_problem3.pkl"
+    pkl_path = Path(INTERMEDIATE_DIR) / "result_problem3.pkl"
     with open(pkl_path, "wb") as _f:
         pickle.dump(result_p3, _f, protocol=pickle.HIGHEST_PROTOCOL)
     print(f"[问题3] 可视化数据已保存 → {pkl_path}")
 
 if __name__ == "__main__":
     output_dir = data_path.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "figures").mkdir(exist_ok=True)
+    ensure_dirs()
 
     t1, x1, y1, t2, x2, y2 = load_problem3_data()
 
@@ -414,7 +413,7 @@ if __name__ == "__main__":
         "Time(s)": np.round(tg, 4), "X(m)": np.round(xf, 6),
         "Y(m)": np.round(yf, 6), "bias_x(m)": np.round(bxa, 6), "bias_y(m)": np.round(bya, 6)
     })
-    df.to_excel(output_dir / "Problem3_10Hz.xlsx", index=False, engine="openpyxl")
+    df.to_excel(Path(TABLE_DIR) / "Problem3_10Hz.xlsx", index=False, engine="openpyxl")
 
     # ── 消融实验 ──
     print("\n" + "=" * 60)
@@ -453,8 +452,8 @@ if __name__ == "__main__":
     df_ablation = pd.DataFrame(ablation_results)
     print("\n消融实验结果：")
     print(df_ablation.to_string(index=False))
-    df_ablation.to_excel(output_dir / "ablation.xlsx", index=False)
-    print("消融实验表格已保存至 output/ablation.xlsx")
+    df_ablation.to_excel(Path(TABLE_DIR) / "ablation.xlsx", index=False)
+    print(f"消融实验表格已保存至 {TABLE_DIR}/ablation.xlsx")
 
     # ── 文献对比与参考文献 ──
     print("\n" + "=" * 60)
@@ -472,7 +471,7 @@ if __name__ == "__main__":
     df_comparison = pd.DataFrame(comparison_data, columns=["方法", "X RMSE (m)", "Y RMSE (m)"])
     print("\n文献对比结果：")
     print(df_comparison.to_string(index=False))
-    df_comparison.to_excel(output_dir / "literature_comparison.xlsx", index=False)
+    df_comparison.to_excel(Path(TABLE_DIR) / "literature_comparison.xlsx", index=False)
 
     bibtex = """
 @article{kalman1960,
@@ -500,8 +499,8 @@ if __name__ == "__main__":
 """
     with open(output_dir / "references.bib", "w", encoding="utf-8") as f:
         f.write(bibtex.strip())
-    print("文献对比表格已保存至 output/literature_comparison.xlsx")
-    print("BibTeX 已保存至 output/references.bib")
+    print(f"文献对比表格已保存至 {TABLE_DIR}/literature_comparison.xlsx")
+    print(f"BibTeX 已保存至 {output_dir}/references.bib")
 
     # ── 结果可视化 ──
     plot_problem3_results(t1, x1, y1, t2, x2, y2, tg, xf, yf, bxa, bya, dx, dy, delay, output_dir)
