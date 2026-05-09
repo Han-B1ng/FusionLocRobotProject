@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from config import TaskConfig, data_path, plot_config
+from config import TaskConfig, data_path, plot_config, TABLE_DIR, PLOT_DIR, INTERMEDIATE_DIR, ensure_dirs
 from core.constraint_checker import ConstraintChecker
 from core.motion_utils import (
     compute_acceleration,
@@ -78,7 +78,7 @@ _COLOR_TRAJ = "#16A34A"
 # ============================================================
 def load_trajectory() -> tuple:
     """读取问题3输出的10 Hz融合轨迹。"""
-    traj_path = data_path.output_dir / "Problem3_10Hz.xlsx"
+    traj_path = Path(TABLE_DIR) / "Problem3_10Hz.xlsx"
 
     if not traj_path.exists():
         for ext in (".xlsx", ".xls", ".csv"):
@@ -830,7 +830,7 @@ def plot_problem4_results(
         output_dir: Path,
 ) -> None:
     """绘制问题4的结果图（轨迹+目标+甘特图）。"""
-    figures_dir = output_dir / "figures"
+    figures_dir = Path(PLOT_DIR)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(14, 10))
@@ -927,7 +927,7 @@ def plot_window_heatmap(
     """
     from matplotlib.lines import Line2D
 
-    figures_dir = output_dir / "figures"
+    figures_dir = Path(PLOT_DIR)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     id_to_name = {tgt["id"]: tgt["name"] for tgt in all_targets}
@@ -1011,7 +1011,7 @@ def plot_schedule_comparison(
         output_dir: Path,
 ) -> None:
     """绘制调度前后对比图：左栏=原始可行窗口，右栏=最终调度结果。"""
-    figures_dir = output_dir / "figures"
+    figures_dir = Path(PLOT_DIR)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     target_names = [tgt["name"] for tgt in all_targets]
@@ -1083,7 +1083,7 @@ def plot_schedule_comparison(
 # ============================================================
 if __name__ == "__main__":
     output_dir = data_path.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
+    ensure_dirs()
 
     # ── 1. 读取融合轨迹 ──
     print("[问题4] 数据加载")
@@ -1194,9 +1194,9 @@ if __name__ == "__main__":
             "序号", "目标编号", "任务", "开始准备时刻(s)", "任务执行时刻(s)"
         ])
         df_empty.to_excel(
-            output_dir / "result.xlsx", index=False, engine="openpyxl"
+            Path(TABLE_DIR) / "result.xlsx", index=False, engine="openpyxl"
         )
-        print(f"[问题4] 空结果已保存至 {output_dir / 'result.xlsx'}")
+        print(f"[问题4] 空结果已保存至 {TABLE_DIR}/result.xlsx")
         exit(0)
 
     # ══════════════════════════════════════════════════════════
@@ -1325,7 +1325,7 @@ if __name__ == "__main__":
     print(f"\n{df_result.to_string(index=False)}")
 
     # ── 8. 保存结果 ──
-    xlsx_path = output_dir / "result.xlsx"
+    xlsx_path = Path(TABLE_DIR) / "result.xlsx"
 
     template_path = Path(data_path.file4).parent / "result_template.xlsx"
     if template_path.exists():
@@ -1397,9 +1397,9 @@ if __name__ == "__main__":
         {"阶段": "最终调度", "数量": sched_photo, "类别": "拍照"},
         {"阶段": "未覆盖目标", "数量": uncovered, "类别": "全部"},
     ])
-    df_cstat.to_excel(output_dir / "constraint_stats.xlsx",
+    df_cstat.to_excel(Path(TABLE_DIR) / "constraint_stats.xlsx",
                       index=False, engine="openpyxl")
-    print(f"  约束统计数据已保存至 {output_dir / 'constraint_stats.xlsx'}")
+    print(f"  约束统计数据已保存至 {TABLE_DIR}/constraint_stats.xlsx")
 
     # ── 新增可视化 ──
     plot_window_heatmap(windows_shoot, windows_photo,
@@ -1437,7 +1437,7 @@ if __name__ == "__main__":
         "covered_targets":  sorted(set(t_["target_id"] for t_ in scheduled_tasks)),
     }
 
-    pkl_path = output_dir / "result_problem4.pkl"
+    pkl_path = Path(INTERMEDIATE_DIR) / "result_problem4.pkl"
     with open(pkl_path, "wb") as _f:
         pickle.dump(result, _f, protocol=pickle.HIGHEST_PROTOCOL)
     print(f"\n[问题4] 可视化数据已保存 → {pkl_path}")

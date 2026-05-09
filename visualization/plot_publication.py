@@ -21,6 +21,7 @@ visualization/plot_publication.py
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -33,7 +34,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
 # 应用中文字体配置（在期刊样式之前）
-from config import plot_config
+from config import plot_config, PLOT_DIR
 plot_config.apply_style()
 
 # ============================================================
@@ -145,7 +146,7 @@ def _extract_task_field(task: Any, *candidates: str, default: Any = None) -> Any
 def summary_figure_paper(
     problem_num: int,
     data_dict: Dict[str, Any],
-    save_path: Union[str, Path] = "output/figures/summary_p{}.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "summary_p{}.png"),
     formats: Sequence[str] = ("png", "pdf"),
 ) -> None:
     """为问题 1/2/3 生成论文级四合一组合图。
@@ -419,7 +420,7 @@ def task_planning_paper(
     traj_x: np.ndarray,
     traj_y: np.ndarray,
     tasks: List[Any],
-    save_path: Union[str, Path] = "output/figures/task_planning.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "task_planning.png"),
     t: Optional[np.ndarray] = None,
     targets: Optional[np.ndarray] = None,
     formats: Sequence[str] = ("png", "pdf"),

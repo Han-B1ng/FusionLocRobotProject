@@ -52,6 +52,10 @@ from config import (
     alignment_config,
     task_config,
     plot_config,
+    TABLE_DIR,
+    PLOT_DIR,
+    INTERMEDIATE_DIR,
+    ensure_dirs,
 )
 
 # ── 日志配置 ──
@@ -69,6 +73,7 @@ STAGE_NAMES: Dict[int, str] = {
     2: "问题2——含噪声与系统偏差融合",
     3: "问题3——实际数据处理",
     4: "问题4——任务规划与优化",
+    5: "敏感性分析——Q矩阵参数扫描",
 }
 
 # 每个阶段运行前需要检查的输入文件
@@ -83,21 +88,25 @@ STAGE_INPUT_CHECKS: Dict[int, List[tuple]] = {
         ("附件1", data_path.path1),
         ("附件2", data_path.path2),
         ("附件3", data_path.path3),
-        ("cleaned_data.pkl", data_path.output_dir / "cleaned_data.pkl"),
+        ("cleaned_data.pkl", Path(INTERMEDIATE_DIR) / "cleaned_data.pkl"),
     ],
     2: [
         ("附件1", data_path.path1),
         ("附件2", data_path.path2),
         ("附件3", data_path.path3),
-        ("cleaned_data.pkl", data_path.output_dir / "cleaned_data.pkl"),
+        ("cleaned_data.pkl", Path(INTERMEDIATE_DIR) / "cleaned_data.pkl"),
     ],
     3: [
         ("附件3", data_path.path3),
-        ("cleaned_data.pkl", data_path.output_dir / "cleaned_data.pkl"),
+        ("cleaned_data.pkl", Path(INTERMEDIATE_DIR) / "cleaned_data.pkl"),
     ],
     4: [
         ("附件4（目标点）", Path(data_path.file4) if isinstance(data_path.file4, str) else data_path.path4),
-        ("cleaned_data.pkl", data_path.output_dir / "cleaned_data.pkl"),
+        ("cleaned_data.pkl", Path(INTERMEDIATE_DIR) / "cleaned_data.pkl"),
+    ],
+    5: [
+        ("附件2", data_path.path2),
+        ("cleaned_data.pkl", Path(INTERMEDIATE_DIR) / "cleaned_data.pkl"),
     ],
 }
 
@@ -108,6 +117,7 @@ STAGE_MODULES: Dict[int, str] = {
     2: "stage2_problem2",
     3: "stage3_problem3",
     4: "stage4_problem4",
+    5: "sensitivity_analysis",
 }
 
 # 阶段脚本文件名（subprocess 回退时使用）
@@ -117,6 +127,7 @@ STAGE_SCRIPTS: Dict[int, str] = {
     2: "stage2_problem2.py",
     3: "stage3_problem3.py",
     4: "stage4_problem4.py",
+    5: "sensitivity_analysis.py",
 }
 
 
@@ -309,7 +320,7 @@ def run_visualization() -> bool:
     """运行全部可视化模块，生成论文级图表。
 
     读取output/目录下的结果文件，调用visualization/子包中的绘图函数，
-    图表统一保存至output/figures/。
+    图表统一保存至output/plots/。
 
     Returns
     -------
@@ -331,7 +342,7 @@ def run_visualization() -> bool:
     except Exception as exc:
         logger.warning(f"[Viz] 样式应用失败，使用默认样式：{exc}")
 
-    figures_dir: Path = data_path.output_dir / "figures"
+    figures_dir: Path = Path(PLOT_DIR)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     success_count = 0
@@ -358,7 +369,7 @@ def run_visualization() -> bool:
     # ╔══ 1. EDA图表 ══╗
     try:
         import pickle
-        pkl_path = data_path.output_dir / "cleaned_data.pkl"
+        pkl_path = Path(INTERMEDIATE_DIR) / "cleaned_data.pkl"
         if pkl_path.exists():
             with open(pkl_path, "rb") as f:
                 cleaned_data = pickle.load(f)
@@ -440,16 +451,16 @@ def run_visualization() -> bool:
             plot_velocity_profile,
         )
 
-        pkl_path = data_path.output_dir / "cleaned_data.pkl"
+        pkl_path = Path(INTERMEDIATE_DIR) / "cleaned_data.pkl"
         if pkl_path.exists():
             with open(pkl_path, "rb") as f:
                 cleaned_data = pickle.load(f)
 
             # 尝试加载各问题的结果
             result_files = {
-                1: data_path.output_dir / "result_problem1.pkl",
-                2: data_path.output_dir / "result_problem2.pkl",
-                3: data_path.output_dir / "result_problem3.pkl",
+                1: Path(INTERMEDIATE_DIR) / "result_problem1.pkl",
+                2: Path(INTERMEDIATE_DIR) / "result_problem2.pkl",
+                3: Path(INTERMEDIATE_DIR) / "result_problem3.pkl",
             }
 
             for pnum, rpath in result_files.items():
@@ -555,7 +566,7 @@ def run_visualization() -> bool:
             plot_heading_diversity,
         )
 
-        result4_path = data_path.output_dir / "result_problem4.pkl"
+        result4_path = Path(INTERMEDIATE_DIR) / "result_problem4.pkl"
         if result4_path.exists():
             with open(result4_path, "rb") as f:
                 result4 = pickle.load(f)
@@ -618,7 +629,7 @@ def run_visualization() -> bool:
         import numpy as np
         from visualization.plot_results import plot_task_gantt_enhanced
 
-        result4_path = data_path.output_dir / "result_problem4.pkl"
+        result4_path = Path(INTERMEDIATE_DIR) / "result_problem4.pkl"
         if result4_path.exists():
             with open(result4_path, "rb") as f:
                 result4 = pickle.load(f)
@@ -647,7 +658,7 @@ def run_visualization() -> bool:
         )
 
         # 优先从 result_problem4.pkl 构建漏斗
-        result4_path = data_path.output_dir / "result_problem4.pkl"
+        result4_path = Path(INTERMEDIATE_DIR) / "result_problem4.pkl"
         funnel_built = False
 
         if result4_path.exists():
@@ -673,7 +684,7 @@ def run_visualization() -> bool:
 
         # 回退：从 constraint_stats.xlsx 读取
         if not funnel_built:
-            stats_path = data_path.output_dir / "constraint_stats.xlsx"
+            stats_path = Path(TABLE_DIR) / "constraint_stats.xlsx"
             if stats_path.exists():
                 df_stats = pd.read_excel(stats_path, engine="openpyxl")
                 stage_map = {}
@@ -721,7 +732,7 @@ def run_visualization() -> bool:
                 )
 
         # 问题 4 双栏图
-        result4_path = data_path.output_dir / "result_problem4.pkl"
+        result4_path = Path(INTERMEDIATE_DIR) / "result_problem4.pkl"
         if result4_path.exists():
             with open(result4_path, "rb") as f:
                 result4 = pickle.load(f)
@@ -763,7 +774,7 @@ def run_visualization() -> bool:
         )
 
         # 检查是否有预计算的敏感性分析结果
-        sa_path = data_path.output_dir / "sensitivity_results.pkl"
+        sa_path = Path(INTERMEDIATE_DIR) / "sensitivity_results.pkl"
         if sa_path.exists():
             with open(sa_path, "rb") as f:
                 sa_data = pickle.load(f)
@@ -829,7 +840,7 @@ def run_visualization() -> bool:
         from visualization.plot_case_study import plot_case_study
         from config import task_config
 
-        result4_path = data_path.output_dir / "result_problem4.pkl"
+        result4_path = Path(INTERMEDIATE_DIR) / "result_problem4.pkl"
         if result4_path.exists():
             with open(result4_path, "rb") as f:
                 result4 = pickle.load(f)
@@ -913,15 +924,16 @@ def main() -> None:
             "  python main.py                    # 运行全部阶段并可视化\n"
             "  python main.py --stages 0 1       # 仅运行阶段0和1\n"
             "  python main.py --stages 2 3 4     # 运行阶段2~4\n"
+            "  python main.py --stages 5         # 仅运行敏感性分析\n"
             "  python main.py --skip-viz          # 跳过可视化\n"
         ),
     )
     parser.add_argument(
         "--stages",
         nargs="+",
-        choices=["0", "1", "2", "3", "4"],
-        default=["0", "1", "2", "3", "4"],
-        help="要运行的阶段编号（默认：0 1 2 3 4）",
+        choices=["0", "1", "2", "3", "4", "5"],
+        default=["0", "1", "2", "3", "4", "5"],
+        help="要运行的阶段编号（默认：0 1 2 3 4 5）",
     )
     parser.add_argument(
         "--skip-viz",
@@ -946,8 +958,7 @@ def main() -> None:
     _print_separator()
 
     # ---- 确保输出目录存在 ----
-    data_path.output_dir.mkdir(parents=True, exist_ok=True)
-    (data_path.output_dir / "figures").mkdir(parents=True, exist_ok=True)
+    ensure_dirs()
 
     # ---- 执行各阶段 ----
     stage_results: Dict[int, bool] = {}

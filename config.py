@@ -22,6 +22,17 @@ from pathlib import Path
 from typing import Optional, Tuple
 import matplotlib
 import matplotlib.font_manager as fm
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(ROOT_DIR, "output")
+TABLE_DIR = os.path.join(OUTPUT_DIR, "tables")
+PLOT_DIR = os.path.join(OUTPUT_DIR, "plots")
+INTERMEDIATE_DIR = os.path.join(OUTPUT_DIR, "intermediate")
+
+
+def ensure_dirs():
+    for d in [OUTPUT_DIR, TABLE_DIR, PLOT_DIR, INTERMEDIATE_DIR]:
+        os.makedirs(d, exist_ok=True)
 fm._load_fontmanager(try_read_cache=False)
 
 matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "DejaVu Sans"]

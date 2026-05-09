@@ -14,6 +14,7 @@ visualization/plot_constraint_analysis.py
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -23,7 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import FancyBboxPatch
 
-from config import plot_config
+from config import plot_config, PLOT_DIR
 # 应用中文字体配置
 plot_config.apply_style()
 
@@ -42,7 +43,7 @@ def _ensure_parent(path: Path) -> None:
 def plot_constraint_funnel(
     stage_labels: List[str],
     stage_counts: List[int],
-    save_path: Union[str, Path] = "output/figures/constraint_funnel.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "constraint_funnel.png"),
     title: str = "约束漏斗图 — 候选窗口筛选过程",
     color_start: str = "#0072B2",
     color_end: str = "#D55E00",
@@ -189,7 +190,7 @@ def plot_constraint_funnel(
 def plot_constraint_bar(
     stage_labels: List[str],
     stage_counts: List[int],
-    save_path: Union[str, Path] = "output/figures/constraint_bar.png",
+    save_path: Union[str, Path] = os.path.join(PLOT_DIR, "constraint_bar.png"),
     title: str = "各阶段窗口存活数",
     color_active: Optional[str] = None,
     color_eliminated: str = "#E5E7EB",
@@ -368,7 +369,7 @@ if __name__ == "__main__":
     ]
     demo_counts = [520, 380, 290, 210, 175, 85]
 
-    out = Path("output/figures")
+    out = Path(PLOT_DIR)
     out.mkdir(parents=True, exist_ok=True)
 
     plot_constraint_funnel(
