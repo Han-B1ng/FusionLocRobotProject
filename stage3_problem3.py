@@ -329,7 +329,9 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("  [Step 3] 精细时间对齐")
     print("=" * 60)
-    fine_delay, _, _, _, cc_delays, cc_scores = align_sensors(t1, x1_d, y1_d, t2_shifted, x2_d, y2_d, target_freq=time_config.target_freq, delay_range=(-5.0, 5.0))
+    fine_delay, _, _, _, cc_delays, cc_scores = align_sensors(t1, x1_d, y1_d, t2_shifted, x2_d, y2_d,
+                                                              target_freq=time_config.target_freq,
+                                                              delay_range=(-5.0, 5.0))
     delay = coarse_off - fine_delay
     print(f"总时间偏差：{delay:.4f} s")
 
