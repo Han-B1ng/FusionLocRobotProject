@@ -207,7 +207,7 @@ def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias
                label="传感器2（原始）")
 
     # Layer 2: 对齐后传感器2轨迹（虚线）
-    t2_aligned = t2 - delay
+    t2_aligned = t2 + delay
     sort_idx = np.argsort(t2_aligned)
     t2a_s = t2_aligned[sort_idx]
     x2a_s, y2a_s = x2[sort_idx], y2[sort_idx]
@@ -274,12 +274,12 @@ def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias
     cc_delays_adj = None
     cc_scores_adj = None
     if cc_delays is not None and cc_scores is not None:
-        cc_delays_adj = np.asarray(cc_delays) - coarse_off
+        cc_delays_adj = np.asarray(coarse_off) - np.asarray(cc_delays)
         cc_scores_adj = np.asarray(cc_scores)
 
     result_p3 = {
         "t1": t1, "x1": x1_d, "y1": y1_d,
-        "t2": t2 - delay, "x2": x2_d, "y2": y2_d,
+        "t2": t2 + delay, "x2": x2_d, "y2": y2_d,
         "t_fused": tg, "x_fused": xf, "y_fused": yf,
         "t_ref": tg, "x_ref": x_ref, "y_ref": y_ref,
         "error_x": xf - x_ref,
@@ -329,11 +329,11 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("  [Step 3] 精细时间对齐")
     print("=" * 60)
-    fine_delay, _, _, _, cc_delays, cc_scores = align_sensors(t1, x1_d, y1_d, t2_shifted, x2_d, y2_d, target_freq=time_config.target_freq)
-    delay = fine_delay - coarse_off
+    fine_delay, _, _, _, cc_delays, cc_scores = align_sensors(t1, x1_d, y1_d, t2_shifted, x2_d, y2_d, target_freq=time_config.target_freq, delay_range=(-5.0, 5.0))
+    delay = coarse_off - fine_delay
     print(f"总时间偏差：{delay:.4f} s")
 
-    t2c = t2 - delay
+    t2c = t2 + delay
     sta, end = max(t1.min(), t2c.min()), min(t1.max(), t2c.max())
     dt = 1 / time_config.target_freq
     t_align = sta + np.arange(int((end - sta) / dt) + 1) * dt
@@ -375,7 +375,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("  [Step 7] 扩展卡尔曼滤波融合")
     print("=" * 60)
-    t2f = t2 - delay
+    t2f = t2 + delay
 
     # 默认 R
     tgd, xfd, yfd, _, _ = fuse_sensors(
