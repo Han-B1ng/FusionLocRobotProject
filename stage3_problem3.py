@@ -1,26 +1,3 @@
-"""
-╔══════════════════════════════════════════════════════╗
-║  阶段 3 — 问题3：实际数据处理与融合                    ║
-╚══════════════════════════════════════════════════════╝
-
-问题描述：
-  附件3为实际采集数据，时间偏差更大且含复杂噪声，
-  需采用粗搜索+精对齐两阶段策略进行时间同步。
-
-求解步骤：
-  ① 加载附件3的两个传感器工作表
-  ② 小波去噪参数对比实验（自动选择最优参数）
-  ③ 粗略时间偏移估计（MSE网格搜索）
-  ④ 精细时间对齐（互相关）
-  ⑤ 系统偏差估计、显著性检验 & AR(1)漂移建模
-  ⑥ 自适应观测噪声估计
-  ⑦ 扩展卡尔曼滤波融合（可选自适应R）
-  ⑧ 消融实验、文献对比与结果可视化
-
-依赖模块：core.time_alignment, core.wavelet_utils, core.kalman_filters
-下游输出：Problem3_10Hz.xlsx, ablation.xlsx, literature_comparison.xlsx
-"""
-
 import matplotlib
 matplotlib.use("Agg")
 import config  # 触发 config.py 中的字体配置
@@ -31,7 +8,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# ── 三维绘图支持 ──
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 from config import alignment_config, data_path, filter_config, time_config, plot_config, TABLE_DIR, PLOT_DIR, INTERMEDIATE_DIR, ensure_dirs
@@ -49,10 +25,6 @@ from core.wavelet_utils import (
     denoise_trajectory,
 )
 
-# ============================================================
-#  全局绘图样式
-# ============================================================
-# 先应用seaborn样式
 try:
     plt.style.use("seaborn-v0_8-whitegrid")
 except OSError:
@@ -61,7 +33,6 @@ except OSError:
     except OSError:
         pass
 
-# 再应用中文字体配置（确保不被覆盖）
 plot_config.apply_style()
 
 
@@ -73,10 +44,6 @@ def iterative_bias_estimation(
         max_iter: int = 5,
         threshold: float = 3.0,
 ) -> tuple:
-    """迭代剔除异常点后估计系统偏差（中位数法）。
-
-    流程：计算残差 → 中位数估计偏差 → 3σ准则剔除异常 → 重复至收敛
-    """
     dx_all = x2_aligned - x1_aligned
     dy_all = y2_aligned - y1_aligned
     mask = np.ones(len(dx_all), dtype=bool)
@@ -101,7 +68,6 @@ def iterative_bias_estimation(
     dx = dx_all - bias_x
     dy = dy_all - bias_y
     return bias_x, bias_y, dx, dy, mask
-
 
 
 _COLOR_S1 = "#2563EB"
@@ -141,17 +107,6 @@ def load_problem3_data() -> tuple:
 
 def estimate_coarse_time_offset(t1, x1, y1, t2, x2, y2, search_range=(-500, 800), coarse_step=5, fine_step=0.01,
                                 min_overlap=20):
-    """粗略时间偏移估计：MSE网格搜索（粗搜→精搜两阶段）。
-
-    Parameters
-    ----------
-    search_range : tuple
-        搜索范围 (下界, 上界)，单位秒。
-    coarse_step, fine_step : float
-        粗搜/精搜步长。
-    min_overlap : int
-        最小重叠时长（秒），不足则返回inf。
-    """
     def _mse(d):
         t2s = t2 + d
         st, ed = max(t1.min(), t2s.min()), min(t1.max(), t2s.max())
@@ -181,7 +136,6 @@ def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias
     d = Path(PLOT_DIR)
     d.mkdir(exist_ok=True)
 
-    # ── 三维轨迹图 ──
     fig = plt.figure(figsize=(12, 8))
     ax = fig.add_subplot(111, projection='3d')
     ax.plot(t1, x1, y1, c=_COLOR_S1, linewidth=0.5, alpha=0.6, label='传感器1')
@@ -195,18 +149,15 @@ def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias
     fig.savefig(d / "Problem3_3D.png", dpi=180)
     plt.close()
 
-    # ── 多层融合轨迹图（空间 X-Y）+ 局部放大窗口 ──
     from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 
     fig, ax = plt.subplots(figsize=(12, 10))
 
-    # Layer 1: 原始传感器轨迹（scatter，低透明度）
     ax.scatter(x1, y1, s=2, c=plot_config.COLORS[1], alpha=0.3,
                label="传感器1（原始）")
     ax.scatter(x2, y2, s=2, c=plot_config.COLORS[2], alpha=0.3,
                label="传感器2（原始）")
 
-    # Layer 2: 对齐后传感器2轨迹（虚线）
     t2_aligned = t2 + delay
     sort_idx = np.argsort(t2_aligned)
     t2a_s = t2_aligned[sort_idx]
@@ -216,12 +167,10 @@ def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias
             c=plot_config.COLORS[2], lw=1.0, alpha=0.7,
             linestyle="--", label="传感器2（对齐后）")
 
-    # Layer 3: 融合轨迹（粗实线）
     ax.plot(x_fused, y_fused,
             c=plot_config.COLORS[3], lw=plot_config.linewidth_thick,
             label="融合轨迹")
 
-    # ── 局部放大窗口（inset）──
     n_f = len(x_fused)
     mid = n_f // 2
     half = max(n_f // 8, 20)
@@ -259,15 +208,12 @@ def plot_problem3_results(t1, x1, y1, t2, x2, y2, t_grid, x_fused, y_fused, bias
     fig.savefig(d / "Problem3_multilayer.png", dpi=plot_config.dpi)
     plt.close()
 
-    # ── 导出可视化数据 pkl（供 main.py 统一可视化）──
     import pickle
 
-    # 计算速度
     vx_fused = np.gradient(xf, tg)
     vy_fused = np.gradient(yf, tg)
     speed = np.sqrt(vx_fused**2 + vy_fused**2)
 
-    # 参考轨迹用传感器1去噪后插值
     x_ref = np.interp(tg, t1, x1_d)
     y_ref = np.interp(tg, t1, y1_d)
 
@@ -379,13 +325,11 @@ if __name__ == "__main__":
     print("=" * 60)
     t2f = t2 + delay
 
-    # 默认 R
     tgd, xfd, yfd, _, _ = fuse_sensors(
         t1, x1_d, y1_d, t2f, x2_d, y2_d,
         target_freq=time_config.target_freq,
         ar1_alpha=ar1_alpha, ar1_bias_var=ar1_bias_var
     )
-    # 自适应 R
     tga, xfa, yfa, bxa, bya = fuse_sensors(
         t1, x1_d, y1_d, t2f, x2_d, y2_d,
         target_freq=time_config.target_freq,
@@ -416,14 +360,11 @@ if __name__ == "__main__":
     })
     df.to_excel(Path(TABLE_DIR) / "Problem3_10Hz.xlsx", index=False, engine="openpyxl")
 
-    # ── 消融实验 ──
     print("\n" + "=" * 60)
     print("  [Ablation] 消融实验")
     print("=" * 60)
 
-    # 消融配置：逐步叠加模块，验证各组件贡献
     ablation_configs = [
-        # (描述,           去噪, α,    σ²_b, R1,   R2  )
         ("基线（无去噪/无AR1/默认R）",       False, 0.0,         0.0,         None,  None  ),
         ("+小波去噪（无AR1/默认R）",         True,  0.0,         0.0,         None,  None  ),
         ("+AR1偏差建模（去噪+AR1/默认R）",   True,  ar1_alpha,   ar1_bias_var,None,  None  ),
@@ -456,14 +397,11 @@ if __name__ == "__main__":
     df_ablation.to_excel(Path(TABLE_DIR) / "ablation.xlsx", index=False)
     print(f"消融实验表格已保存至 {TABLE_DIR}/ablation.xlsx")
 
-    # ── 文献对比与参考文献 ──
     print("\n" + "=" * 60)
     print("  [Reference] 文献对比与参考文献导出")
     print("=" * 60)
 
-    # 文献对比：各方法RMSE (m)
     comparison_data = [
-        # (方法,                    X_RMSE, Y_RMSE)
         ("传统EKF [1]",             2.5,    1.8),
         ("粒子滤波 [2]",            2.1,    1.5),
         ("小波去噪+KF [3]",         1.4,    0.9),
@@ -503,7 +441,6 @@ if __name__ == "__main__":
     print(f"文献对比表格已保存至 {TABLE_DIR}/literature_comparison.xlsx")
     print(f"BibTeX 已保存至 {output_dir}/references.bib")
 
-    # ── 结果可视化 ──
     plot_problem3_results(t1, x1, y1, t2, x2, y2, tg, xf, yf, bxa, bya, dx, dy, delay, output_dir,
                           cc_delays=cc_delays, cc_scores=cc_scores, coarse_off=coarse_off)
 

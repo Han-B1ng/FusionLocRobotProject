@@ -1,19 +1,5 @@
 # file: main.py
-# @Author : Han_B1ng
-# @Time : 2026/5/6 20:45
-# @Description : 主入口：一键运行从数据预处理到可视化的全流程
 
-"""
-╔══════════════════════════════════════════════════════╗
-║  多源融合机器人定位项目 —— 主入口                      ║
-╚══════════════════════════════════════════════════════╝
-
-使用方法：
-  python main.py                  # 运行全部阶段并可视化
-  python main.py --stages 0 1     # 仅运行阶段0和1
-  python main.py --skip-viz       # 运行全部阶段但跳过可视化
-  python main.py --stages 2       # 运行单个阶段
-"""
 
 from __future__ import annotations
 
@@ -36,14 +22,10 @@ except OSError:
         plt.style.use("seaborn-whitegrid")
     except OSError:
         pass
-# 中文字体配置已由 config.py 统一处理
-# 注意：seaborn 样式会覆盖 font.sans-serif，需在 config 导入后重新应用
-# ── 环境准备：确保项目根目录在sys.path中 ──
 _PROJECT_ROOT = Path(__file__).resolve().parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-# ── 导入项目配置 ──
 from config import (
     data_path,
     time_config,
@@ -58,7 +40,6 @@ from config import (
 )
 plot_config.apply_style()  # seaborn 覆盖了字体，重新应用中文字体
 
-# ── 日志配置 ──
 logging.basicConfig(
     level=logging.INFO,
     format="[%(levelname)s] %(message)s",
@@ -66,7 +47,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ── 阶段元数据定义 ──
 STAGE_NAMES: Dict[int, str] = {
     0: "数据探索与预处理（EDA）",
     1: "问题1——无噪声时间对齐",
@@ -76,8 +56,6 @@ STAGE_NAMES: Dict[int, str] = {
     5: "敏感性分析——Q矩阵参数扫描",
 }
 
-# 每个阶段运行前需要检查的输入文件
-# 键为阶段编号，值为 (描述, 路径) 列表
 STAGE_INPUT_CHECKS: Dict[int, List[tuple]] = {
     0: [
         ("附件1", data_path.path1),
@@ -110,7 +88,6 @@ STAGE_INPUT_CHECKS: Dict[int, List[tuple]] = {
     ],
 }
 
-# 阶段模块名映射（用于动态导入）
 STAGE_MODULES: Dict[int, str] = {
     0: "stage0_eda",
     1: "stage1_problem1",
@@ -120,7 +97,6 @@ STAGE_MODULES: Dict[int, str] = {
     5: "sensitivity_analysis",
 }
 
-# 阶段脚本文件名（subprocess 回退时使用）
 STAGE_SCRIPTS: Dict[int, str] = {
     0: "stage0_eda.py",
     1: "stage1_problem1.py",
@@ -131,14 +107,9 @@ STAGE_SCRIPTS: Dict[int, str] = {
 }
 
 
-# ============================================================
-#  工具函数
-# ============================================================
 def _print_banner(text: str, width: int = 70, char: str = "═") -> None:
-    """打印居中横幅标题（装饰用）。"""
     padding = max(0, (width - len(text) - 2) // 2)
     line = char * padding + f" {text} " + char * padding
-    # 确保长度一致
     if len(line) < width:
         line += char * (width - len(line))
     logger.info("")
@@ -146,23 +117,10 @@ def _print_banner(text: str, width: int = 70, char: str = "═") -> None:
 
 
 def _print_separator(width: int = 70, char: str = "─") -> None:
-    """打印水平分隔线。"""
     logger.info(char * width)
 
 
 def _check_input_files(stage_num: int) -> bool:
-    """检查指定阶段所需的输入文件是否全部存在。
-
-    Parameters
-    ----------
-    stage_num : int
-        阶段编号（0~4）。
-
-    Returns
-    -------
-    bool
-        全部存在返回True，否则返回False。
-    """
     checks = STAGE_INPUT_CHECKS.get(stage_num, [])
     all_ok = True
     for desc, fpath in checks:
@@ -174,7 +132,6 @@ def _check_input_files(stage_num: int) -> bool:
 
 
 def _elapsed_str(seconds: float) -> str:
-    """将秒数格式化为可读时间字符串（如'2m 30.5s'）。"""
     if seconds < 60:
         return f"{seconds:.1f}s"
     minutes = int(seconds // 60)
@@ -186,42 +143,18 @@ def _elapsed_str(seconds: float) -> str:
     return f"{hours}h {mins}m {secs:.1f}s"
 
 
-# ============================================================
-#  阶段执行
-# ============================================================
 def run_stage(stage_num: int) -> bool:
-    """运行指定编号的处理阶段。
-
-    执行策略：优先导入模块调用run()，若不存在则回退至subprocess执行脚本。
-
-    Parameters
-    ----------
-    stage_num : int
-        阶段编号（0~4）。
-
-    Returns
-    -------
-    bool
-        成功返回True，失败返回False。
-
-    Notes
-    -----
-    - 执行前自动校验输入文件
-    - 执行前后打印分隔线与耗时统计
-    """
     stage_name = STAGE_NAMES.get(stage_num, f"阶段 {stage_num}")
 
     _print_banner(f"Stage {stage_num}: {stage_name}")
     logger.info(f"[Main] 开始执行阶段{stage_num}——{stage_name}")
 
-    # ---- 输入文件检查 ----
     if not _check_input_files(stage_num):
         logger.error(f"[Main] 阶段{stage_num}输入文件缺失，跳过。")
         return False
 
     t_start = time.time()
 
-    # ---- 方式一：尝试导入模块并调用 run() ----
     module_name = STAGE_MODULES.get(stage_num)
     if module_name is not None:
         try:
@@ -257,7 +190,6 @@ def run_stage(stage_num: int) -> bool:
             _print_separator()
             return False
 
-    # ---- 方式二：subprocess 回退 ----
     script_name = STAGE_SCRIPTS.get(stage_num)
     if script_name is None:
         logger.error(f"[Main] 阶段{stage_num}无对应脚本定义。")
@@ -278,7 +210,6 @@ def run_stage(stage_num: int) -> bool:
             timeout=600,  # 10 分钟超时
         )
 
-        # 输出子进程日志
         if result.stdout:
             for line in result.stdout.strip().splitlines():
                 logger.info(f"  │ {line}")
@@ -313,29 +244,10 @@ def run_stage(stage_num: int) -> bool:
     return True
 
 
-# ============================================================
-#  可视化执行
-# ============================================================
 def run_visualization() -> bool:
-    """运行全部可视化模块，生成论文级图表。
-
-    读取output/目录下的结果文件，调用visualization/子包中的绘图函数，
-    图表统一保存至output/plots/。
-
-    Returns
-    -------
-    bool
-        全部成功返回True，否则返回False。
-
-    Notes
-    -----
-    - 依赖各阶段产出的结果文件（.pkl / .xlsx）
-    - 若某个结果文件缺失，仅跳过对应图表，不中断整体流程
-    """
     _print_banner("可视化：生成全部图表")
     t_start = time.time()
 
-    # ---- 全局样式应用 ----
     try:
         plot_config.apply_style()
         logger.info("[Viz] 全局绘图样式已应用（plot_config）")
@@ -348,7 +260,6 @@ def run_visualization() -> bool:
     success_count = 0
     fail_count = 0
 
-    # ---- 辅助：安全调用绘图函数 ----
     def _safe_call(func, description: str, **kwargs) -> None:
         nonlocal success_count, fail_count
         try:
@@ -366,7 +277,6 @@ def run_visualization() -> bool:
             logger.debug(traceback.format_exc())
             fail_count += 1
 
-    # ╔══ 1. EDA图表 ══╗
     try:
         import pickle
         pkl_path = Path(INTERMEDIATE_DIR) / "cleaned_data.pkl"
@@ -382,13 +292,11 @@ def run_visualization() -> bool:
             import numpy as np
             import pandas as pd
 
-            # 按附件分组绘图
             att_groups: Dict[str, Dict[str, pd.DataFrame]] = {}
             for (att_name, sensor_label), df in cleaned_data.items():
                 att_groups.setdefault(att_name, {})[sensor_label] = df
 
             for att_name, sensors in att_groups.items():
-                # 时间序列
                 t_list, x_list, y_list, labels = [], [], [], []
                 for sname, sdf in sensors.items():
                     t_list.append(sdf["t"].values)
@@ -404,7 +312,6 @@ def run_visualization() -> bool:
                     save_path=figures_dir / f"{att_name}_timeseries.png",
                 )
 
-                # 采样间隔直方图
                 for sname, sdf in sensors.items():
                     expected_dt = (
                         time_config.dt1 if "1" in sname else time_config.dt2
@@ -418,7 +325,6 @@ def run_visualization() -> bool:
                         title=f"{att_name} / {sname} 采样间隔分布",
                     )
 
-            # 缺失值汇总
             missing_records = {}
             for (att_name, sensor_label), df in cleaned_data.items():
                 key = f"{att_name}/{sensor_label}"
@@ -441,7 +347,6 @@ def run_visualization() -> bool:
         logger.warning(f"[Viz] EDA可视化模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ╔══ 2. 轨迹对比图（问题1/2/3） ══╗
     try:
         import pickle
         import numpy as np
@@ -456,7 +361,6 @@ def run_visualization() -> bool:
             with open(pkl_path, "rb") as f:
                 cleaned_data = pickle.load(f)
 
-            # 尝试加载各问题的结果
             result_files = {
                 1: Path(INTERMEDIATE_DIR) / "result_problem1.pkl",
                 2: Path(INTERMEDIATE_DIR) / "result_problem2.pkl",
@@ -474,7 +378,6 @@ def run_visualization() -> bool:
                 with open(rpath, "rb") as f:
                     result = pickle.load(f)
 
-                # 轨迹对比（仅问题1保留2D轨迹图，问题2/3使用3D轨迹图）
                 if pnum == 1:
                     _safe_call(
                         plot_trajectory_comparison,
@@ -495,7 +398,6 @@ def run_visualization() -> bool:
                         title=f"问题{pnum} 轨迹对比",
                     )
 
-                # 误差时序
                 if "error_x" in result and "error_y" in result:
                     _safe_call(
                         plot_error_time_series,
@@ -507,7 +409,6 @@ def run_visualization() -> bool:
                         title=f"问题{pnum} 融合误差",
                     )
 
-                # 速度曲线
                 if "speed" in result:
                     _safe_call(
                         plot_velocity_profile,
@@ -523,7 +424,6 @@ def run_visualization() -> bool:
         logger.warning(f"[Viz] 轨迹可视化模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ╔══ 2.5 速度热力轨迹图 ══╗
     try:
         import pickle
         import numpy as np
@@ -544,7 +444,6 @@ def run_visualization() -> bool:
             if x_fused is None or y_fused is None or speed is None:
                 continue
 
-            # 速度序列长度可能与轨迹不一致，截取
             n = min(len(x_fused), len(y_fused), len(speed))
             _safe_call(
                 plot_velocity_heatmap_trajectory,
@@ -557,7 +456,6 @@ def run_visualization() -> bool:
         logger.warning(f"[Viz] 速度热力轨迹模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ╔══ 3. 任务规划图（问题4） ══╗
     try:
         import pickle
         import numpy as np
@@ -577,7 +475,6 @@ def run_visualization() -> bool:
             t_traj = result4.get("t_fused", None)
             tasks = result4.get("tasks", [])
 
-            # 加载目标点
             targets = None
             target_path = Path(data_path.file4)
             if not target_path.is_absolute():
@@ -587,7 +484,6 @@ def run_visualization() -> bool:
                 df_targets = pd.read_excel(target_path, engine="openpyxl")
                 targets = df_targets.values
 
-            # 轨迹 + 任务标记
             _safe_call(
                 plot_tasks_on_trajectory,
                 "问题4 任务执行位置",
@@ -596,7 +492,6 @@ def run_visualization() -> bool:
                 t=t_traj, targets=targets,
             )
 
-            # 甘特图
             _safe_call(
                 plot_task_gantt,
                 "问题4 任务甘特图",
@@ -604,7 +499,6 @@ def run_visualization() -> bool:
                 save_path=figures_dir / "task_gantt_p4.png",
             )
 
-            # 航向角多样性
             heading_data = result4.get("heading_diversity", {})
             if isinstance(heading_data, dict):
                 for tid, headings in heading_data.items():
@@ -624,7 +518,6 @@ def run_visualization() -> bool:
         logger.warning(f"[Viz] 任务规划可视化模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ╔══ 3.5 增强甘特图 + 约束漏斗图 ══╗
     try:
         import pickle
         import numpy as np
@@ -638,7 +531,6 @@ def run_visualization() -> bool:
             tasks = result4.get("tasks", [])
             candidate_windows = result4.get("candidate_windows", None)
 
-            # 增强甘特图
             _safe_call(
                 plot_task_gantt_enhanced,
                 "问题4 增强甘特图",
@@ -650,7 +542,6 @@ def run_visualization() -> bool:
         logger.warning(f"[Viz] 增强甘特图模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ---- 约束漏斗图 ----
     try:
         import pandas as pd
         from visualization.plot_constraint_analysis import (
@@ -658,7 +549,6 @@ def run_visualization() -> bool:
             build_funnel_from_stage4,
         )
 
-        # 优先从 result_problem4.pkl 构建漏斗
         result4_path = Path(INTERMEDIATE_DIR) / "result_problem4.pkl"
         funnel_built = False
 
@@ -683,7 +573,6 @@ def run_visualization() -> bool:
                 )
                 funnel_built = True
 
-        # 回退：从 constraint_stats.xlsx 读取
         if not funnel_built:
             stats_path = Path(TABLE_DIR) / "constraint_stats.xlsx"
             if stats_path.exists():
@@ -709,7 +598,6 @@ def run_visualization() -> bool:
         logger.warning(f"[Viz] 约束漏斗图模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ╔══ 4. 论文级组合图 ══╗
     try:
         import pickle
         import numpy as np
@@ -718,7 +606,6 @@ def run_visualization() -> bool:
             task_planning_paper,
         )
 
-        # 问题 1/2/3 组合图
         for pnum in (1, 2, 3):
             rpath = Path(INTERMEDIATE_DIR) / f"result_problem{pnum}.pkl"
             if rpath.exists():
@@ -732,7 +619,6 @@ def run_visualization() -> bool:
                     save_path=str(figures_dir / "summary_p{}.png").format(pnum),
                 )
 
-        # 问题 4 双栏图
         result4_path = Path(INTERMEDIATE_DIR) / "result_problem4.pkl"
         if result4_path.exists():
             with open(result4_path, "rb") as f:
@@ -764,7 +650,6 @@ def run_visualization() -> bool:
         logger.warning(f"[Viz] 论文级图表模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ╔══ 5. 参数敏感性分析（若有扫描结果） ══╗
     try:
         import pickle
         import numpy as np
@@ -774,13 +659,11 @@ def run_visualization() -> bool:
             plot_tradeoff_curve,
         )
 
-        # 检查是否有预计算的敏感性分析结果
         sa_path = Path(INTERMEDIATE_DIR) / "sensitivity_results.pkl"
         if sa_path.exists():
             with open(sa_path, "rb") as f:
                 sa_data = pickle.load(f)
 
-            # 单参数扫描
             if "single" in sa_data:
                 for param_name, pdata in sa_data["single"].items():
                     _safe_call(
@@ -794,7 +677,6 @@ def run_visualization() -> bool:
                         highlight_best=pdata.get("highlight_best"),
                     )
 
-            # 双参数热力图
             if "heatmap" in sa_data:
                 for key, hdata in sa_data["heatmap"].items():
                     _safe_call(
@@ -810,7 +692,6 @@ def run_visualization() -> bool:
                         baseline=hdata.get("baseline"),
                     )
 
-            # Trade-off 曲线
             if "tradeoff" in sa_data:
                 for key, tdata in sa_data["tradeoff"].items():
                     _safe_call(
@@ -834,7 +715,6 @@ def run_visualization() -> bool:
         logger.warning(f"[Viz] 敏感性分析模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ╔══ 6. 案例分析（Case Study） ══╗
     try:
         import pickle
         import numpy as np
@@ -860,7 +740,6 @@ def run_visualization() -> bool:
 
                 id_to_target = {tgt["id"]: tgt for tgt in all_targets}
 
-                # 选前 3 个任务做案例分析
                 for task in tasks[:3]:
                     tid = task.get("target_id")
                     tgt = id_to_target.get(tid)
@@ -870,7 +749,6 @@ def run_visualization() -> bool:
                     task_type = task.get("task_type", "shoot")
                     t_exec = task.get("t_exec", task.get("t_execute"))
 
-                    # 约束参数
                     if task_type == "shoot":
                         dmin, dmax = task_config.SHOOT_DIST_MIN, task_config.SHOOT_DIST_MAX
                         vlim = task_config.SHOOT_SPEED_MAX
@@ -900,7 +778,6 @@ def run_visualization() -> bool:
         logger.warning(f"[Viz] 案例分析模块加载失败：{exc}")
         logger.debug(traceback.format_exc())
 
-    # ---- 汇总 ----
     elapsed = time.time() - t_start
     logger.info("")
     logger.info(f"[Viz] 可视化完成——成功：{success_count}，失败/跳过：{fail_count}")
@@ -910,13 +787,8 @@ def run_visualization() -> bool:
     return fail_count == 0
 
 
-# ============================================================
-#  主函数
-# ============================================================
 def main() -> None:
-    """主入口：解析命令行参数，按序执行各阶段并生成可视化图表。"""
 
-    # ---- 命令行参数 ----
     parser = argparse.ArgumentParser(
         description="多源融合机器人定位项目——一键运行全流程",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -947,7 +819,6 @@ def main() -> None:
     stages_to_run = [int(s) for s in args.stages]
     skip_viz = args.skip_viz
 
-    # ---- 总体计时 ----
     t_total_start = time.time()
 
     _print_banner("多源融合机器人定位项目——全流程")
@@ -958,10 +829,8 @@ def main() -> None:
     logger.info(f"[Main] 跳过可视化：{'是' if skip_viz else '否'}")
     _print_separator()
 
-    # ---- 确保输出目录存在 ----
     ensure_dirs()
 
-    # ---- 执行各阶段 ----
     stage_results: Dict[int, bool] = {}
     for stage_num in stages_to_run:
         try:
@@ -971,7 +840,6 @@ def main() -> None:
                 logger.info(f"[Main] ✓ 阶段{stage_num}成功完成。")
             else:
                 logger.warning(f"[Main] ✗ 阶段{stage_num}失败。")
-                # 阶段 0 失败则终止（后续阶段依赖它）
                 if stage_num == 0:
                     logger.error(
                         "[Main] 阶段0是基础阶段，失败后无法继续，终止。"
@@ -988,9 +856,7 @@ def main() -> None:
             logger.debug(traceback.format_exc())
             stage_results[stage_num] = False
 
-    # ---- 可视化 ----
     if not skip_viz:
-        # 至少有一个阶段成功才执行可视化
         if any(stage_results.values()):
             try:
                 run_visualization()
@@ -1004,7 +870,6 @@ def main() -> None:
     else:
         logger.info("[Main] 已跳过可视化（--skip-viz）。")
 
-    # ---- 最终汇总 ----
     t_total = time.time() - t_total_start
     _print_banner("运行汇总")
     for sn in sorted(stage_results.keys()):
@@ -1019,13 +884,9 @@ def main() -> None:
     logger.info(f"  总耗时：{_elapsed_str(t_total)}")
     _print_separator()
 
-    # 退出码：任何阶段失败则返回 1
     if not all(stage_results.values()):
         sys.exit(1)
 
 
-# ============================================================
-#  运行入口
-# ============================================================
 if __name__ == "__main__":
     main()

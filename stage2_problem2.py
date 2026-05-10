@@ -1,26 +1,3 @@
-"""
-╔══════════════════════════════════════════════════════╗
-║  阶段 2 — 问题2：含噪声与系统偏差融合                  ║
-╚══════════════════════════════════════════════════════╝
-
-问题描述：
-  附件2的两类传感器数据含有观测噪声及系统偏差，
-  需在时间对齐的基础上，进行去噪、偏差估计与动态补偿。
-
-求解步骤：
-  ① 加载附件2的两个传感器工作表
-  ② 小波去噪参数对比实验（自动选择最优参数）
-  ③ 互相关时间对齐
-  ④ 系统偏差估计（中位数法 + 迭代剔除异常）
-  ⑤ 偏差显著性检验 & AR(1)漂移建模
-  ⑥ 自适应观测噪声估计
-  ⑦ 扩展卡尔曼滤波融合（可选自适应R）
-  ⑧ 消融实验、文献对比与结果可视化
-
-依赖模块：core.time_alignment, core.wavelet_utils, core.kalman_filters
-下游输出：Problem2_10Hz.xlsx, ablation.xlsx, literature_comparison.xlsx
-"""
-
 import matplotlib
 matplotlib.use("Agg")
 import config  # 触发 config.py 中的字体配置
@@ -31,7 +8,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# ── 三维绘图支持 ──
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 from config import alignment_config, data_path, filter_config, time_config, plot_config, TABLE_DIR, PLOT_DIR, INTERMEDIATE_DIR, ensure_dirs
@@ -49,10 +25,6 @@ from core.wavelet_utils import (
     denoise_trajectory,
 )
 
-# ============================================================
-#  全局绘图样式
-# ============================================================
-# 先应用seaborn样式
 try:
     plt.style.use("seaborn-v0_8-whitegrid")
 except OSError:
@@ -61,7 +33,6 @@ except OSError:
     except OSError:
         pass
 
-# 再应用中文字体配置（确保不被覆盖）
 plot_config.apply_style()
 
 
@@ -73,10 +44,6 @@ def iterative_bias_estimation(
     max_iter: int = 5,
     threshold: float = 3.0,
 ) -> tuple:
-    """迭代剔除异常点后估计系统偏差（中位数法）。
-
-    流程：计算残差 → 中位数估计偏差 → 3σ准则剔除异常 → 重复至收敛
-    """
     dx_all = x2_aligned - x1_aligned
     dy_all = y2_aligned - y1_aligned
     mask = np.ones(len(dx_all), dtype=bool)
@@ -132,11 +99,9 @@ def load_problem2_data() -> tuple:
 
     print(f"[问题2] 加载文件：{file_path}")
 
-    # 分别读取两个工作表
     df1 = pd.read_excel(file_path, sheet_name='方式1(4Hz)', engine="openpyxl")
     df2 = pd.read_excel(file_path, sheet_name='方式2(5Hz)', engine="openpyxl")
 
-    # 统一列名
     col_map = {
         '时间(s)': 't',
         'X坐标(m)': 'x',
@@ -145,7 +110,6 @@ def load_problem2_data() -> tuple:
     df1 = df1.rename(columns=col_map)
     df2 = df2.rename(columns=col_map)
 
-    # 数据清洗
     for df in (df1, df2):
         for col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -222,7 +186,6 @@ def plot_problem2_results(
     fig.savefig(figures_dir / "Problem2_bias.png", dpi=180)
     plt.close()
 
-    # ── 三维轨迹图 ──
     fig = plt.figure(figsize=(12, 8))
     ax = fig.add_subplot(111, projection='3d')
     ax.plot(t1, x1, y1, c=_COLOR_S1, linewidth=0.5, alpha=0.6, label='传感器1')
@@ -235,15 +198,12 @@ def plot_problem2_results(
     ax.legend()
     fig.savefig(figures_dir / "Problem2_3D.png", dpi=180)
     plt.close()
-    # ── 导出可视化数据 pkl（供 main.py 统一可视化）──
     import pickle
 
-    # 计算速度
     vx_fused = np.gradient(x_fused, t_grid)
     vy_fused = np.gradient(y_fused, t_grid)
     speed = np.sqrt(vx_fused**2 + vy_fused**2)
 
-    # 参考轨迹用传感器1去噪后插值
     x_ref = np.interp(t_grid, t1, x1_d)
     y_ref = np.interp(t_grid, t1, y1_d)
 
@@ -381,7 +341,6 @@ if __name__ == "__main__":
     print("=" * 60)
     t2_for_fuse = t2 - delay
 
-    # --- 7a: 默认 R 融合
     print("\n  [默认 R] 融合中…")
     t_grid_def, x_fused_def, y_fused_def, _, _ = fuse_sensors(
         t1, x1_d, y1_d, t2_for_fuse, x2_d, y2_d,
@@ -390,7 +349,6 @@ if __name__ == "__main__":
         ar1_bias_var=ar1_bias_var
     )
 
-    # --- 7b: 自适应 R 融合
     print("  [自适应 R] 融合中…")
     t_grid_adp, x_fused_adp, y_fused_adp, bias_x_arr, bias_y_arr = fuse_sensors(
         t1, x1_d, y1_d, t2_for_fuse, x2_d, y2_d,
@@ -436,14 +394,11 @@ if __name__ == "__main__":
     df_result.to_excel(xlsx_path, index=False, engine="openpyxl")
     print(f"[问题2] 结果已保存至 {xlsx_path}")
 
-    # ── 消融实验 ──
     print("\n" + "=" * 60)
     print("  [Ablation] 消融实验")
     print("=" * 60)
 
-    # 消融配置：逐步叠加模块，验证各组件贡献
     ablation_configs = [
-        # (描述,           去噪, α,    σ²_b, R1,   R2  )
         ("基线（无去噪/无AR1/默认R）",       False, 0.0,         0.0,         None,  None  ),
         ("+小波去噪（无AR1/默认R）",         True,  0.0,         0.0,         None,  None  ),
         ("+AR1偏差建模（去噪+AR1/默认R）",   True,  ar1_alpha,   ar1_bias_var,None,  None  ),
@@ -476,14 +431,11 @@ if __name__ == "__main__":
     df_ablation.to_excel(Path(TABLE_DIR) / "ablation.xlsx", index=False)
     print(f"消融实验表格已保存至 {TABLE_DIR}/ablation.xlsx")
 
-    # ── 文献对比与参考文献 ──
     print("\n" + "=" * 60)
     print("  [Reference] 文献对比与参考文献导出")
     print("=" * 60)
 
-    # 文献对比：各方法RMSE (m)
     comparison_data = [
-        # (方法,                    X_RMSE, Y_RMSE)
         ("传统EKF [1]",             2.5,    1.8),
         ("粒子滤波 [2]",            2.1,    1.5),
         ("小波去噪+KF [3]",         1.4,    0.9),
@@ -523,7 +475,6 @@ if __name__ == "__main__":
     print(f"文献对比表格已保存至 {TABLE_DIR}/literature_comparison.xlsx")
     print(f"BibTeX 已保存至 {output_dir}/references.bib")
 
-    # ── 结果可视化 ──
     plot_problem2_results(t1,x1,y1,t2,x2,y2, t_grid,x_fused,y_fused, bias_x_arr,bias_y_arr, dx,dy,delay, output_dir)
 
     print("\n" + "=" * 60)

@@ -1,22 +1,5 @@
 # file: stage4_problem4.py
-# @Author : Han_B1ng
-# @Time : 2026/5/7
-# @Description : 问题4求解：读取轨迹与目标 → 运动状态计算 → 约束检查 → ILP/贪心调度 → 输出结果
-#                 [v5] 六项参数优化：稀疏采样、降低MIN_TASK_SEP、MRV优先级、降低角度差、SG滤波、新目标函数
 
-"""
-╔══════════════════════════════════════════════════════╗
-║  阶段 4 — 问题4：任务规划与结果输出（v5 优化版）      ║
-╚══════════════════════════════════════════════════════╝
-
-v5 核心变更（六项参数优化，不改架构）：
-  [C1] 稀疏采样后处理：防止窗口合并过度压缩
-  [C2] MIN_TASK_SEP: 0.5 → 0.2，任务并发度提高
-  [C3] MRV 启发式：稀缺目标优先调度，提高覆盖率
-  [C4] MIN_HEADING_DIFF: 30° → 15°，拍照容量翻倍
-  [C5] Savitzky-Golay 滤波：平滑加速度，减少误杀
-  [C6] ILP 目标函数：unique_targets + λ·photo + γ·angle
-"""
 
 import matplotlib
 
@@ -37,10 +20,6 @@ from core.motion_utils import (
     compute_velocity,
 )
 
-# ============================================================
-#  全局绘图样式
-# ============================================================
-# 先应用seaborn样式
 try:
     plt.style.use("seaborn-v0_8-whitegrid")
 except OSError:
@@ -49,10 +28,8 @@ except OSError:
     except OSError:
         pass
 
-# 再应用中文字体配置（确保不被覆盖）
 plot_config.apply_style()
 
-# ── ILP 求解器检测 ──
 try:
     import pulp
 
@@ -60,7 +37,6 @@ try:
 except ImportError:
     HAS_PULP = False
 
-# [C5] Savitzky-Golay 滤波器检测
 try:
     from scipy.signal import savgol_filter
 
@@ -73,11 +49,7 @@ _COLOR_PHOTO = "#2563EB"
 _COLOR_TRAJ = "#16A34A"
 
 
-# ============================================================
-#  Step 1: 读取融合轨迹
-# ============================================================
 def load_trajectory() -> tuple:
-    """读取问题3输出的10 Hz融合轨迹。"""
     traj_path = Path(TABLE_DIR) / "Problem3_10Hz.xlsx"
 
     if not traj_path.exists():
@@ -109,11 +81,7 @@ def load_trajectory() -> tuple:
     return t, x, y
 
 
-# ============================================================
-#  Step 2: 读取目标点
-# ============================================================
 def load_targets() -> list:
-    """读取附件4的目标点坐标。"""
     file_path = Path(data_path.file4)
 
     if not file_path.exists():
@@ -179,28 +147,7 @@ def load_targets() -> list:
     return all_targets
 
 
-# ============================================================
-#  [C1] 稀疏采样后处理
-# ============================================================
 def sparse_sample_windows(windows: list, interval: float = 0.5) -> list:
-    """对窗口列表做稀疏采样：按 (target_id, task_type) 分组，
-    每个 cluster 内每隔 `interval` 秒保留一个执行点。
-
-    作用：当 constraint_checker 内部 merge 过于激进时，
-    此函数作为安全网，确保每个连续可行区间内保留足够多的候选点。
-
-    Parameters
-    ----------
-    windows : list[dict]
-        原始可行窗口列表。
-    interval : float
-        最小采样间隔（秒），默认 0.5s。
-
-    Returns
-    -------
-    sampled : list[dict]
-        稀疏采样后的窗口列表。
-    """
     if not windows:
         return []
 
@@ -221,11 +168,7 @@ def sparse_sample_windows(windows: list, interval: float = 0.5) -> list:
     return sampled
 
 
-# ============================================================
-#  窗口压缩（保留函数定义，主流程不再调用）
-# ============================================================
 def compress_windows(windows: list, dt: float) -> list:
-    """将连续合法区间合并为单窗口，保留最优执行时刻。"""
     if not windows:
         return []
 
@@ -265,9 +208,6 @@ def compress_windows(windows: list, dt: float) -> list:
     return compressed
 
 
-# ============================================================
-#  ILP 最优调度（v5 修改版）
-# ============================================================
 def schedule_ilp(
         windows_shoot: list,
         windows_photo: list,
@@ -281,15 +221,6 @@ def schedule_ilp(
         weight_angle_diversity: float = 0.05,  # [C6] 新：角度多样性权重
         time_limit: int = 180,
 ) -> list:
-    """使用 0-1 整数规划（ILP）求解最优任务调度。
-
-    [v5] 目标函数改为：
-      max  Σ z_t  +  λ · Σ photo_i · x_i  +  γ · Σ y_{t,b}
-           ─────     ──────────────────     ────────────────
-           覆盖目标数   拍照数量（次要）        角度bin覆盖（第三）
-
-    其中 z_t = 1 当且仅当目标 t 至少有一个任务被选中。
-    """
     all_windows = []
 
     for w in windows_shoot:
@@ -310,7 +241,6 @@ def schedule_ilp(
 
     num_bins = int(360 / heading_bin_size)
 
-    # ── 建立角度 bin 索引 ──
     for w in all_windows:
         if w["task_type"] == "photo":
             heading = w.get("heading", 0)
@@ -318,7 +248,6 @@ def schedule_ilp(
         else:
             w["bin_idx"] = -1
 
-    # ── 收集 (target_id, bin_idx) 组合 ──
     target_bin_set = set()
     for w in all_windows:
         if w["task_type"] == "photo":
@@ -327,40 +256,28 @@ def schedule_ilp(
     n_target_bins = len(target_bin_list)
     target_bin_to_idx = {tb: i for i, tb in enumerate(target_bin_list)}
 
-    # [C6] 收集所有涉及的目标 ID
     all_target_ids = set(w["target_id"] for w in all_windows)
 
-    # ══════════════════════════════════════════════
-    #  构建 ILP 模型
-    # ══════════════════════════════════════════════
     prob = pulp.LpProblem("TaskScheduling", pulp.LpMaximize)
 
-    # ── 决策变量 ──
     x = [pulp.LpVariable(f"x_{i}", cat="Binary") for i in range(n_windows)]
     y = [pulp.LpVariable(f"y_{j}", cat="Binary") for j in range(n_target_bins)]
 
-    # [C6] z_t: 目标 t 是否被至少一个任务覆盖
     z = {tid: pulp.LpVariable(f"z_{tid}", cat="Binary") for tid in all_target_ids}
 
-    # ── 目标函数 ── [C6] 重写
     objective = 0
 
-    # 主项：覆盖目标数
     objective += weight_unique_target * pulp.lpSum(z.values())
 
-    # 次项：拍照数量
     for i, w in enumerate(all_windows):
         if w["task_type"] == "photo":
             objective += weight_photo * x[i]
 
-    # 第三项：角度 bin 覆盖
     for j in range(n_target_bins):
         objective += weight_angle_diversity * y[j]
 
     prob += objective
 
-    # ── [C6] 约束 0：目标覆盖联动 ──
-    #    z_t ≤ Σ x_i  (i 属于目标 t 的所有窗口)
     windows_by_target = {}
     for i, w in enumerate(all_windows):
         windows_by_target.setdefault(w["target_id"], []).append(i)
@@ -371,7 +288,6 @@ def schedule_ilp(
             f"target_cover_{tid}",
         )
 
-    # ── 约束1：执行时刻互斥 ── [C2] min_task_sep 已改为 0.2
     print(f"  [ILP] 构建冲突矩阵（{n_windows} 个窗口）...")
     conflict_pairs = []
 
@@ -393,7 +309,6 @@ def schedule_ilp(
     for (i, j) in conflict_pairs:
         prob += x[i] + x[j] <= 1, f"conflict_{i}_{j}"
 
-    # ── 约束2：每目标射击上限 ──
     shoot_by_target = {}
     for i, w in enumerate(all_windows):
         if w["task_type"] == "shoot":
@@ -405,7 +320,6 @@ def schedule_ilp(
             f"shoot_limit_{tid}",
         )
 
-    # ── 约束3：角度 bin 覆盖联动 ──
     photo_windows_by_tb = {}
     for i, w in enumerate(all_windows):
         if w["task_type"] == "photo":
@@ -419,13 +333,11 @@ def schedule_ilp(
             prob += y[j] <= pulp.lpSum(x[i] for i in indices), \
                 f"bin_link_{tid}_{bidx}"
 
-    # ── 约束4：每目标每 bin 最多选 1 个窗口 ──
     for tb, indices in photo_windows_by_tb.items():
         if len(indices) > 1:
             prob += pulp.lpSum(x[i] for i in indices) <= 1, \
                 f"bin_one_{tb[0]}_{tb[1]}"
 
-    # ── 约束5：拍照方位角最小差值 ── [C4] min_heading_diff 已改为 15°
     photo_by_target = {}
     for i, w in enumerate(all_windows):
         if w["task_type"] == "photo":
@@ -448,9 +360,6 @@ def schedule_ilp(
 
     print(f"  [ILP] 角度冲突约束：{angle_conflict_count} 条")
 
-    # ══════════════════════════════════════════════
-    #  求解
-    # ══════════════════════════════════════════════
     n_vars = n_windows + n_target_bins + len(z)
     n_consts = (len(conflict_pairs) + len(shoot_by_target)
                 + n_target_bins + angle_conflict_count + len(z))
@@ -473,7 +382,6 @@ def schedule_ilp(
     print(f"  [ILP] 求解完成：status={status}, "
           f"objective={obj_val:.2f}, 耗时={t_solve:.1f}s")
 
-    # ── 提取结果 ──
     scheduled_tasks = []
 
     if status in ("Optimal", "Feasible"):
@@ -495,7 +403,6 @@ def schedule_ilp(
 
         scheduled_tasks.sort(key=lambda t: t["t_execute"])
 
-        # ── 验证 ──
         covered_targets = sum(
             1 for tid in all_target_ids
             if pulp.value(z[tid]) > 0.5
@@ -514,21 +421,11 @@ def schedule_ilp(
     return scheduled_tasks
 
 
-# ============================================================
-#  贪心调度 v3（回退方案，MRV + 低间隔）
-# ============================================================
 def schedule_greedy_v2(
         windows_shoot: list,
         windows_photo: list,
         all_targets: list,
 ) -> list:
-    """v3 优化版贪心调度：MRV 优先级 + 全局时间排序 + 角度区间覆盖。
-
-    [v5] 三项改进：
-      [C2] MIN_TASK_SEP: 0.5 → 0.2
-      [C3] MRV 启发式：稀缺目标优先
-      [C4] MIN_HEADING_DIFF: 30° → 15°
-    """
     MIN_TASK_SEP = 0.2  # [C2]
     MAX_SHOOT_PER_TARGET = 3
     MIN_HEADING_DIFF = 15.0  # [C4]
@@ -538,13 +435,10 @@ def schedule_greedy_v2(
     id_to_name = {t["id"]: t["name"] for t in all_targets}
     scheduled_tasks = []
 
-    # ── [C3] 第一轮：射击调度（MRV + 时间排序）──
-    # 统计每个目标的可选窗口数
     shoot_windows_by_target = {}
     for w in windows_shoot:
         shoot_windows_by_target.setdefault(w["target_id"], []).append(w)
 
-    # MRV：按窗口数升序排（稀缺目标优先）
     mrv_shoot_targets = sorted(
         shoot_windows_by_target.keys(),
         key=lambda tid: len(shoot_windows_by_target[tid]),
@@ -586,7 +480,6 @@ def schedule_greedy_v2(
     print(f"\n  射击调度完成（MRV）：{shoot_count_total} 次射击, "
           f"覆盖 {shoot_target_count} 个目标")
 
-    # ── [C3] 第二轮：拍照调度（MRV + 时间排序 + 角度区间覆盖）──
     photo_windows_by_target = {}
     for w in windows_photo:
         photo_windows_by_target.setdefault(w["target_id"], []).append(w)
@@ -656,7 +549,6 @@ def schedule_greedy_v2(
     print(f"\n  拍照调度完成（MRV）：{photo_count_total} 次拍照, "
           f"覆盖 {photo_target_count} 个目标")
 
-    # ── 第三轮：回填扫描 ──
     shoot_count_map = {}
     for tsk in scheduled_tasks:
         if tsk["task_type"] == "shoot":
@@ -665,7 +557,6 @@ def schedule_greedy_v2(
 
     backfill_added = 0
 
-    # 3a. 回填未覆盖射击目标
     scheduled_tids_shoot = {
         tsk["target_id"] for tsk in scheduled_tasks
         if tsk["task_type"] == "shoot"
@@ -712,7 +603,6 @@ def schedule_greedy_v2(
             name = id_to_name.get(tid, f"T{tid}")
             print(f"    回填射击：{name} @ {w['t_exec']:.2f}s")
 
-    # 3b. 回填更多拍照
     photo_windows_remaining = sorted(
         [w for w in windows_photo
          if w["target_id"] not in target_photo_bins
@@ -772,14 +662,10 @@ def schedule_greedy_v2(
     return scheduled_tasks
 
 
-# ============================================================
-#  打印汇总
-# ============================================================
 def print_summary(
         scheduled_tasks: list,
         all_targets: list,
 ) -> None:
-    """打印调度结果汇总信息。"""
     shoot_tasks = [t for t in scheduled_tasks if t["task_type"] == "shoot"]
     photo_tasks = [t for t in scheduled_tasks if t["task_type"] == "photo"]
 
@@ -820,16 +706,12 @@ def print_summary(
     print("=" * 60)
 
 
-# ============================================================
-#  可视化
-# ============================================================
 def plot_problem4_results(
         t: np.ndarray, x: np.ndarray, y: np.ndarray,
         all_targets: list,
         scheduled_tasks: list,
         output_dir: Path,
 ) -> None:
-    """绘制问题4的结果图（轨迹+目标+甘特图）。"""
     figures_dir = Path(PLOT_DIR)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
@@ -921,10 +803,6 @@ def plot_window_heatmap(
         scheduled_tasks: list,
         output_dir: Path,
 ) -> None:
-    """绘制可行窗口时空分布热力图：横轴时间，纵轴目标，颜色=任务类型。
-
-    叠加调度结果标记：已选中的窗口用星号/菱形高亮。
-    """
     from matplotlib.lines import Line2D
 
     figures_dir = Path(PLOT_DIR)
@@ -937,7 +815,6 @@ def plot_window_heatmap(
 
     fig, ax = plt.subplots(figsize=(16, max(6, n_targets * 0.4)))
 
-    # 绘制可行窗口（散点）
     for w in windows_shoot:
         tid = w["target_id"]
         if tid in target_ids:
@@ -954,7 +831,6 @@ def plot_window_heatmap(
                        c=plot_config.COLORS[5], alpha=0.4,
                        marker="s", edgecolors="none")
 
-    # 叠加调度结果（大号标记）
     for task in scheduled_tasks:
         tid = task["target_id"]
         if tid not in target_ids:
@@ -1010,7 +886,6 @@ def plot_schedule_comparison(
         all_targets: list,
         output_dir: Path,
 ) -> None:
-    """绘制调度前后对比图：左栏=原始可行窗口，右栏=最终调度结果。"""
     figures_dir = Path(PLOT_DIR)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1022,7 +897,6 @@ def plot_schedule_comparison(
         1, 2, figsize=(20, max(6, n_targets * 0.4)), sharey=True,
     )
 
-    # ── 左栏：原始可行窗口 ──
     for w in windows_shoot:
         tid = w["target_id"]
         if tid in target_ids:
@@ -1048,7 +922,6 @@ def plot_schedule_comparison(
     )
     ax1.invert_yaxis()
 
-    # ── 右栏：最终调度结果 ──
     for task in scheduled_tasks:
         tid = task["target_id"]
         if tid not in target_ids:
@@ -1078,22 +951,16 @@ def plot_schedule_comparison(
     print(f"[问题4] 调度前后对比图已保存")
 
 
-# ============================================================
-#  主入口
-# ============================================================
 if __name__ == "__main__":
     output_dir = data_path.output_dir
     ensure_dirs()
 
-    # ── 1. 读取融合轨迹 ──
     print("[问题4] 数据加载")
     print("=" * 60)
     t, x, y = load_trajectory()
 
-    # ── 2. 读取目标点坐标 ──
     all_targets = load_targets()
 
-    # ── 3. 运动状态计算（v, a）──
     print("\n" + "=" * 60)
     print("  步骤3：运动状态计算")
     print("=" * 60)
@@ -1106,12 +973,9 @@ if __name__ == "__main__":
     print(f"  加速度：min={np.min(acc):.3f}，max={np.max(acc):.3f}，"
           f"mean={np.mean(acc):.3f} m/s²")
 
-    # [C5] compute_acceleration 内部已做 SG 滤波，此处不再重复。
-    # 如需调整平滑强度，请修改 core/motion_utils.py 中的 window_length 参数。
     print(f"  [C5] 加速度由 compute_acceleration 内部 SG 滤波得到，无重复平滑")
 
 
-    # ── 4. 实例化约束检查器 ──
     print("\n" + "=" * 60)
     print("  步骤4：约束检查器实例化")
     print("=" * 60)
@@ -1125,7 +989,6 @@ if __name__ == "__main__":
           f"{TaskConfig.PHOTO_DIST_MAX}] m")
     print(f"  拍照速率上限：{TaskConfig.PHOTO_SPEED_MAX} m/s")
 
-    # ── 5. 搜索可行时间窗口（0.5s 间隔密集采样）──
     print("\n" + "=" * 60)
     print("  步骤5：搜索可行时间窗口")
     print("=" * 60)
@@ -1142,7 +1005,6 @@ if __name__ == "__main__":
     for w in windows_photo:
         w["task_type"] = "photo"
 
-    # [C1] 稀疏采样后处理（安全网：防止 constraint_checker 内部 merge 过度压缩）
     n_shoot_before = len(windows_shoot)
     n_photo_before = len(windows_photo)
     windows_shoot = sparse_sample_windows(windows_shoot, interval=0.5)
@@ -1153,7 +1015,6 @@ if __name__ == "__main__":
     print(f"  射击可行窗口（0.5s采样）：{len(windows_shoot)} 个")
     print(f"  拍照可行窗口（0.5s采样）：{len(windows_photo)} 个")
 
-    # ── 按目标统计窗口数 ──
     id_to_name = {tgt["id"]: tgt["name"] for tgt in all_targets}
 
     for label, windows in [("射击", windows_shoot), ("拍照", windows_photo)]:
@@ -1166,7 +1027,6 @@ if __name__ == "__main__":
             for tid, cnt in sorted(counts.items()):
                 print(f"    {id_to_name.get(tid, f'T{tid}'):>6s}: {cnt} 个窗口")
 
-    # ── 窗口时间分布诊断 ──
     windows_all = windows_shoot + windows_photo
 
     if len(windows_all) > 0:
@@ -1199,9 +1059,6 @@ if __name__ == "__main__":
         print(f"[问题4] 空结果已保存至 {TABLE_DIR}/result.xlsx")
         exit(0)
 
-    # ══════════════════════════════════════════════════════════
-    #  Step 6: 调度（ILP 优先，贪心回退）
-    # ══════════════════════════════════════════════════════════
     print("\n" + "=" * 60)
     print("  步骤6：任务调度")
     print("=" * 60)
@@ -1251,7 +1108,6 @@ if __name__ == "__main__":
     print(f"\n  [调度] 求解器：{solver_used}")
     print(f"  [调度] 调度完成：{len(scheduled_tasks)} 个任务")
 
-    # ── 各目标调度结果诊断 ──
     shoot_per_target = {}
     photo_per_target = {}
     for tsk in scheduled_tasks:
@@ -1274,7 +1130,6 @@ if __name__ == "__main__":
             status = " ← 未覆盖"
         print(f"    {name}: 射击 {sc} 次, 拍照 {pc} 次{status}")
 
-    # ── 空闲区间诊断 ──
     if len(scheduled_tasks) >= 2:
         gaps = []
         for i in range(len(scheduled_tasks) - 1):
@@ -1298,9 +1153,6 @@ if __name__ == "__main__":
         else:
             print("\n  无超过 10 秒的空闲区间")
 
-    # ══════════════════════════════════════════════════════════
-    #  Step 7: 生成结果表
-    # ══════════════════════════════════════════════════════════
     print("\n" + "=" * 60)
     print("  步骤7：生成结果表")
     print("=" * 60)
@@ -1324,7 +1176,6 @@ if __name__ == "__main__":
 
     print(f"\n{df_result.to_string(index=False)}")
 
-    # ── 8. 保存结果 ──
     xlsx_path = Path(TABLE_DIR) / "result.xlsx"
 
     template_path = Path(data_path.file4).parent / "result_template.xlsx"
@@ -1355,10 +1206,8 @@ if __name__ == "__main__":
     size_kb = xlsx_path.stat().st_size / 1024
     print(f"[问题4] 文件大小：{size_kb:.1f} KB")
 
-    # ── 9. 输出汇总 ──
     print_summary(scheduled_tasks, all_targets)
 
-    # 可视化
     plot_problem4_results(
         t, x, y,
         all_targets,
@@ -1366,7 +1215,6 @@ if __name__ == "__main__":
         output_dir,
     )
 
-    # ── 约束满足率统计（为漏斗图准备数据）──
     print("\n" + "=" * 60)
     print("  约束满足率统计")
     print("=" * 60)
@@ -1401,36 +1249,27 @@ if __name__ == "__main__":
                       index=False, engine="openpyxl")
     print(f"  约束统计数据已保存至 {TABLE_DIR}/constraint_stats.xlsx")
 
-    # ── 新增可视化 ──
     plot_window_heatmap(windows_shoot, windows_photo,
                         all_targets, scheduled_tasks, output_dir)
     plot_schedule_comparison(windows_shoot, windows_photo,
                              scheduled_tasks, all_targets, output_dir)
 
-    # ══════════════════════════════════════════════════════════
-    #  Step 10: 保存可视化数据（供 main.py 统一可视化）
-    # ══════════════════════════════════════════════════════════
     import pickle
 
     result = {
-        # 轨迹
         "t_fused":          t,
         "traj_x":           x,
         "traj_y":           y,
-        # 运动状态（未重复滤波的原始值）
         "vx":               vx,
         "vy":               vy,
         "speed":            speed,
         "ax":               ax,
         "ay":               ay,
         "acc":              acc,
-        # 目标与调度
         "tasks":            scheduled_tasks,
         "all_targets":      all_targets,
-        # 可行窗口
         "windows_shoot":    windows_shoot,
         "windows_photo":    windows_photo,
-        # 统计
         "solver_used":      solver_used,
         "n_shoot":          len([t_ for t_ in scheduled_tasks if t_["task_type"] == "shoot"]),
         "n_photo":          len([t_ for t_ in scheduled_tasks if t_["task_type"] == "photo"]),
@@ -1443,6 +1282,4 @@ if __name__ == "__main__":
     print(f"\n[问题4] 可视化数据已保存 → {pkl_path}")
     print(f"  字段: {list(result.keys())}")
 
-    # ── 最终完成 ──
     print(f"\n[问题4] 问题4求解完毕。（求解器：{solver_used}）")
-

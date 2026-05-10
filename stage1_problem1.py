@@ -1,26 +1,5 @@
 # file: stage1_problem1.py
-# @Author : Han_B1ng
-# @Time : 2026/5/7
-# @Description : 问题1求解：加载附件1 → 时间对齐 → 输出时间偏差与10Hz轨迹
 
-"""
-╔══════════════════════════════════════════════════════╗
-║  阶段 1 — 问题1：无噪声条件下的时间对齐              ║
-╚══════════════════════════════════════════════════════╝
-
-问题描述：
-  附件1的两类传感器无噪声干扰，仅因设备开机时序不同
-  导致时间戳存在偏移 Δt。
-
-求解步骤：
-  ① 加载附件1的两个传感器工作表
-  ② 估计时间偏差（互相关 + 最小二乘精化）
-  ③ 线性插值对齐并等权融合为10 Hz轨迹
-  ④ 输出Excel结果 + 对比可视化
-
-依赖模块：core.time_alignment → align_sensors
-下游引用：stage2复用本模块的对齐框架
-"""
 
 import matplotlib
 matplotlib.use("Agg")
@@ -35,10 +14,6 @@ import pandas as pd
 from config import data_path, time_config, alignment_config, plot_config, TABLE_DIR, PLOT_DIR, ensure_dirs
 from core.time_alignment import align_sensors
 
-# ============================================================
-#  全局绘图样式
-# ============================================================
-# 先应用seaborn样式
 try:
     plt.style.use("seaborn-v0_8-whitegrid")
 except OSError:
@@ -47,32 +22,17 @@ except OSError:
     except OSError:
         pass
 
-# 再应用中文字体配置（确保不被覆盖）
 plot_config.apply_style()
 
 
-# 传感器配色
 _COLOR_S1 = "#2563EB"   # 方式1 — 蓝
 _COLOR_S2 = "#DC2626"   # 方式2 — 红
 _COLOR_FUSED = "#16A34A"  # 融合轨迹 — 绿
 
 
-# ============================================================
-#  数据加载
-# ============================================================
 def load_problem1_data() -> tuple:
-    """加载附件1的两个传感器工作表。
-
-    Returns
-    -------
-    t1, x1, y1 : np.ndarray
-        传感器1的时间戳(s)、X/Y坐标(m)。
-    t2, x2, y2 : np.ndarray
-        传感器2的时间戳(s)、X/Y坐标(m)。
-    """
     file_path = data_path.path1
 
-    # 兼容 .csv / .xlsx
     if not file_path.exists():
         for ext in (".xlsx", ".xls", ".csv"):
             alt = file_path.with_suffix(ext)
@@ -89,7 +49,6 @@ def load_problem1_data() -> tuple:
         file_path, sheet_name="方式2(5Hz)", engine="openpyxl"
     )
 
-    # 列名标准化
     col_map = {
         "时间(s)": "t", "时间": "t", "Time": "t", "time": "t", "t": "t",
         "X坐标(m)": "x", "X坐标": "x", "X": "x", "x": "x",
@@ -98,7 +57,6 @@ def load_problem1_data() -> tuple:
     df1 = df1.rename(columns=col_map)[["t", "x", "y"]]
     df2 = df2.rename(columns=col_map)[["t", "x", "y"]]
 
-    # 类型清洗
     for df in (df1, df2):
         for col in ("t", "x", "y"):
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -125,19 +83,12 @@ def load_problem1_data() -> tuple:
     return t1, x1, y1, t2, x2, y2
 
 
-# ============================================================
-#  结果保存
-# ============================================================
 def save_result(
     t_grid: np.ndarray,
     x_fused: np.ndarray,
     y_fused: np.ndarray,
     output_path: Path,
 ) -> None:
-    """将10 Hz融合轨迹保存为Excel文件。
-
-    输出列名：Time(s)、X(m)、Y(m)
-    """
     df = pd.DataFrame({
         "Time(s)": np.round(t_grid, 4),
         "X(m)":    np.round(x_fused, 6),
@@ -151,28 +102,12 @@ def save_result(
     print(f"[stage1] 已保存：{output_path}（{size_kb:.1f} KB）")
 
 
-# ============================================================
-#  绘图：时间偏差估计（互相关曲线）
-# ============================================================
 def plot_time_deviation(
     delays: np.ndarray,
     scores: np.ndarray,
     delay_fine: float,
     output_path: Path,
 ) -> None:
-    """绘制时间偏差估计图——互相关曲线 + 最优时偏标记。
-
-    Parameters
-    ----------
-    delays : np.ndarray
-        候选时偏数组 (s)。
-    scores : np.ndarray
-        各候选时偏对应的加权相关系数。
-    delay_fine : float
-        精化后的最优时偏估计值 (s)。
-    output_path : Path
-        图片保存路径。
-    """
     fig, ax = plt.subplots(figsize=(10, 5))
 
     ax.plot(delays, scores, color=_COLOR_S1, linewidth=1.0, alpha=0.9)
@@ -200,9 +135,6 @@ def plot_time_deviation(
     print(f"[stage1] 已保存：{output_path}")
 
 
-# ============================================================
-#  绘图：对齐前后对比
-# ============================================================
 def plot_comparison(
     t1: np.ndarray, x1: np.ndarray, y1: np.ndarray,
     t2: np.ndarray, x2: np.ndarray, y2: np.ndarray,
@@ -210,14 +142,8 @@ def plot_comparison(
     delay_fine: float,
     output_path: Path,
 ) -> None:
-    """绘制对齐前后轨迹对比图。
-
-    子图1：原始双传感器数据（散点图）
-    子图2：融合后的10 Hz轨迹（折线图）
-    """
     fig, axes = plt.subplots(2, 1, figsize=(14, 10))
 
-    # ── 子图1：原始传感器数据 ──
     ax1 = axes[0]
     ax1.scatter(
         t1, x1, s=4, color=_COLOR_S1, alpha=0.6,
@@ -234,7 +160,6 @@ def plot_comparison(
     )
     ax1.legend(loc="upper right", fontsize=10)
 
-    # ── 子图2：融合后的10 Hz轨迹 ──
     ax2 = axes[1]
     ax2.plot(
         t_grid, x_fused,
@@ -256,15 +181,9 @@ def plot_comparison(
     print(f"[stage1] 已保存：{output_path}")
 
 
-# ============================================================
-#  主入口
-# ============================================================
 if __name__ == "__main__":
-    # ── 1. 加载附件1数据 ──
     t1, x1, y1, t2, x2, y2 = load_problem1_data()
 
-    # ── 2. 时间对齐与等权融合 ──
-    # 问题1无噪声，采用等权融合（w1=w2=0.5）
     delay_fine, t_grid, x_fused, y_fused, delays, scores = align_sensors(
         t1, x1, y1,
         t2, x2, y2,
@@ -274,7 +193,6 @@ if __name__ == "__main__":
         w1=0.5, w2=0.5,
     )
 
-    # ── 3. 输出对齐结果 ──
     print("\n" + "=" * 50)
     print("  问题 1 结果")
     print("=" * 50)
@@ -284,15 +202,12 @@ if __name__ == "__main__":
     print(f"  输出频率：{time_config.target_freq:.0f} Hz")
     print("=" * 50)
 
-    # ── 4. 保存10 Hz融合轨迹 ──
     output_xlsx = Path(TABLE_DIR) / "Problem1_10Hz.xlsx"
     save_result(t_grid, x_fused, y_fused, output_xlsx)
 
-    # ── 5. 绘制时间偏差图 ──
     output_td = Path(PLOT_DIR) / "Problem1_time_deviation.png"
     plot_time_deviation(delays, scores, delay_fine, output_td)
 
-    # ── 6. 绘制对齐前后对比图 ──
     output_fig = Path(PLOT_DIR) / "Problem1_trajectory.png"
     plot_comparison(
         t1, x1, y1,
@@ -302,7 +217,6 @@ if __name__ == "__main__":
         output_fig,
     )
 
-    # ── 7. 导出可视化数据 pkl（供 main.py 统一可视化）──
     import pickle
     from config import INTERMEDIATE_DIR
 

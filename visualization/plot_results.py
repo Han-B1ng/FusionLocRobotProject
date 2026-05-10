@@ -1,18 +1,5 @@
 # file: visualization/plot_results.py
-# @Description : 问题4 任务规划结果可视化模块
-# 依赖：matplotlib, numpy, pathlib
-# 上游：stage4_problem4.py 产出的任务调度方案、融合轨迹、目标点坐标
-# 下游：被 main.py 或 stage4 脚本调用
 
-"""
-visualization/plot_results.py
-==============================
-提供四类任务规划结果可视化函数：
-  1. plot_tasks_on_trajectory    — 二维轨迹上叠加任务执行标记
-  2. plot_task_gantt             — 任务调度甘特图
-  3. plot_heading_diversity      — 拍照航向角多样性圆图 / 玫瑰图
-  4. plot_task_gantt_enhanced    — 增强版甘特图（形状标记 + 候选窗口虚线标注）
-"""
 
 from __future__ import annotations
 
@@ -26,14 +13,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import FancyArrowPatch, Rectangle
 
-# ========== 改动 A —— 新增 import ==========
 from config import plot_config, PLOT_DIR
-# ===========================================
 
-# ============================================================
-#  全局样式
-# ============================================================
-# 先应用seaborn样式
 try:
     plt.style.use("seaborn-v0_8-whitegrid")
 except OSError:
@@ -42,10 +23,8 @@ except OSError:
     except OSError:
         pass
 
-# 再应用中文字体配置（确保不被覆盖）
 plot_config.apply_style()
 
-# 最后应用其他自定义设置
 plt.rcParams.update({
     "axes.linewidth":     0.8,
     "axes.grid":          True,
@@ -54,7 +33,6 @@ plt.rcParams.update({
     "font.size":          10,
 })
 
-# ---- 论文风格配色 ----
 _COLOR_TRAJ   = "#2563EB"   # 融合轨迹 — 蓝
 _COLOR_SHOOT  = "#DC2626"   # 射击任务 — 红
 _COLOR_PHOTO  = "#2563EB"   # 拍照任务 — 蓝
@@ -65,19 +43,11 @@ _COLOR_BG     = "#FAFAFA"   # 背景
 _DPI = 150
 
 
-# ============================================================
-#  辅助
-# ============================================================
 def _ensure_parent(path: Path) -> None:
-    """创建保存路径的父目录。"""
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _extract_task_field(task: Any, *candidates: str, default: Any = None) -> Any:
-    """从 dict 或对象中按候选字段名依次取值。
-
-    兼容 dict、dataclass、命名元组等多种任务表示。
-    """
     if isinstance(task, dict):
         for name in candidates:
             if name in task:
@@ -90,9 +60,6 @@ def _extract_task_field(task: Any, *candidates: str, default: Any = None) -> Any
     return default
 
 
-# ============================================================
-#  1. 轨迹上叠加任务执行位置
-# ============================================================
 def plot_tasks_on_trajectory(
     traj_x: np.ndarray,
     traj_y: np.ndarray,
@@ -102,53 +69,17 @@ def plot_tasks_on_trajectory(
     targets: Optional[np.ndarray] = None,
     title: str = "任务执行位置",
 ) -> None:
-    """在二维轨迹上标记射击和拍照任务的执行位置。
-
-    Parameters
-    ----------
-    traj_x, traj_y : np.ndarray
-        融合轨迹的 X / Y 坐标序列（米）。
-    tasks : list
-        任务列表，每个元素为 dict 或对象，需包含以下字段::
-
-            task_type  : str   — 'shoot' 或 'photo'
-            t_exec     : float — 任务执行时刻（秒）
-            x, y       : float — 执行位置坐标（米）
-            target_id  : int/str — 目标编号
-            t_start    : float — 任务窗口起始（可选，用于时间条）
-            t_end      : float — 任务窗口结束（可选）
-
-    save_path : str 或 Path
-        图片保存路径。
-    t : np.ndarray, optional
-        轨迹时间轴。若提供则用于从轨迹中插值定位执行点
-        （当 task 中无 x/y 字段时的后备方案）。
-    targets : np.ndarray, optional
-        目标点坐标，shape ``(N, 2)`` 或 ``(N, 3)`` 含 [id, x, y]。
-        若提供则以灰色菱形标注所有目标点。
-    title : str
-        图表标题。
-
-    Notes
-    -----
-    - 射击：红色三角形 ``▲`` + 红色标签。
-    - 拍照：蓝色圆形 ``●`` + 蓝色标签。
-    - 每个标记旁以小字标注目标编号。
-    - 右下角附图例和任务数量统计。
-    """
     save_path = Path(save_path)
     _ensure_parent(save_path)
 
     fig, ax = plt.subplots(figsize=(10, 8), constrained_layout=True)
 
-    # ---- 融合轨迹 ----
     ax.plot(
         traj_x, traj_y,
         color=_COLOR_TRAJ, linewidth=0.8, alpha=0.6,
         label="融合轨迹",
     )
 
-    # ---- 目标点（可选）----
     if targets is not None:
         targets = np.asarray(targets)
         if targets.ndim == 2 and targets.shape[1] >= 3:
@@ -173,7 +104,6 @@ def plot_tasks_on_trajectory(
                 xytext=(5, 5), textcoords="offset points",
             )
 
-    # ---- 任务标记 ----
     shoot_count = 0
     photo_count = 0
 
@@ -184,7 +114,6 @@ def plot_tasks_on_trajectory(
         ty_exec = _extract_task_field(task, "y", "pos_y", default=None)
         t_exec = _extract_task_field(task, "t_exec", "t_execute", "time", default=None)
 
-        # 若无坐标，尝试从轨迹时间轴插值
         if tx_exec is None and t is not None and t_exec is not None:
             idx = np.argmin(np.abs(t - t_exec))
             tx_exec = traj_x[idx]
@@ -228,13 +157,11 @@ def plot_tasks_on_trajectory(
             )
             photo_count += 1
 
-    # ---- 样式 ----
     ax.set_xlabel("X (m)", fontsize=11)
     ax.set_ylabel("Y (m)", fontsize=11)
     ax.set_title(title, fontsize=13, fontweight="bold")
     ax.set_aspect("equal", adjustable="datalim")
 
-    # 手工图例补充
     legend_handles = [
         plt.Line2D([0], [0], color=_COLOR_TRAJ, linewidth=0.8, alpha=0.6,
                     label="融合轨迹"),
@@ -256,46 +183,15 @@ def plot_tasks_on_trajectory(
     print(f"[plot_tasks_on_trajectory] 已保存: {save_path}")
 
 
-# ============================================================
-#  2. 任务甘特图
-# ============================================================
 def plot_task_gantt(
     tasks: List[Any],
     save_path: Union[str, Path] = os.path.join(PLOT_DIR, "task_gantt.png"),
     title: str = "任务调度甘特图",
 ) -> None:
-    """绘制任务调度甘特图：横轴时间、纵轴任务，区分准备与执行时段。
-
-    Parameters
-    ----------
-    tasks : list
-        任务列表，每个元素为 dict 或对象，需包含::
-
-            task_type  : str   — 'shoot' / 'photo'
-            target_id  : int/str — 目标编号
-            t_prep_start : float — 准备开始时刻（秒）
-            t_exec_start : float — 执行开始时刻（秒）
-            t_exec_end   : float — 执行结束时刻（秒）
-
-        若无 t_prep_start，则用 prep_duration 倒推。
-
-    save_path : str 或 Path
-        图片保存路径。
-    title : str
-        图表标题。
-
-    Notes
-    -----
-    - 每行一个任务，从上到下按执行时间排序。
-    - 浅灰色条为准备时段，彩色条为执行时段。
-    - 射击红色、拍照蓝色。
-    - 横轴标注绝对时间（秒）。
-    """
     save_path = Path(save_path)
     _ensure_parent(save_path)
 
     if not tasks:
-        # 空任务：生成占位图
         fig, ax = plt.subplots(figsize=(12, 3), constrained_layout=True)
         ax.text(0.5, 0.5, "无任务数据", transform=ax.transAxes,
                 fontsize=14, ha="center", va="center", color="#9CA3AF")
@@ -305,7 +201,6 @@ def plot_task_gantt(
         print(f"[plot_task_gantt] 已保存（空）: {save_path}")
         return
 
-    # ---- 提取任务信息并按执行时间排序 ----
     parsed: List[Dict[str, Any]] = []
     for task in tasks:
         ttype = str(_extract_task_field(task, "task_type", "type", default="")).lower()
@@ -318,7 +213,6 @@ def plot_task_gantt(
         if t_exec_start is None:
             continue
 
-        # 倒推准备开始时刻
         if t_prep_start is None:
             t_prep_start = t_exec_start - float(prep_dur)
 
@@ -333,12 +227,10 @@ def plot_task_gantt(
             "is_shoot":     is_shoot,
         })
 
-    # 按执行开始时间排序
     parsed.sort(key=lambda d: d["t_exec_start"])
 
     n_tasks = len(parsed)
 
-    # ---- 绘图 ----
     fig, ax = plt.subplots(
         figsize=(14, max(3, 0.5 * n_tasks + 2)),
         constrained_layout=True,
@@ -351,7 +243,6 @@ def plot_task_gantt(
 
         color_exec = _COLOR_SHOOT if p["is_shoot"] else _COLOR_PHOTO
 
-        # 准备时段 — 浅灰
         prep_width = p["t_exec_start"] - p["t_prep_start"]
         if prep_width > 0:
             ax.barh(
@@ -360,7 +251,6 @@ def plot_task_gantt(
                 edgecolor="#D1D5DB", linewidth=0.5,
             )
 
-        # 执行时段 — 彩色
         exec_width = p["t_exec_end"] - p["t_exec_start"]
         if exec_width <= 0:
             exec_width = 0.3  # 最小宽度保证可见
@@ -370,7 +260,6 @@ def plot_task_gantt(
             edgecolor="white", linewidth=0.5,
         )
 
-        # 标注时间
         ax.text(
             p["t_exec_start"] + exec_width / 2, y,
             f'{p["t_exec_start"]:.1f}s',
@@ -378,7 +267,6 @@ def plot_task_gantt(
             fontweight="bold",
         )
 
-    # ---- 样式 ----
     y_labels = [p["label"] for p in reversed(parsed)]
     ax.set_yticks(range(n_tasks))
     ax.set_yticklabels(y_labels, fontsize=9)
@@ -386,7 +274,6 @@ def plot_task_gantt(
     ax.set_title(title, fontsize=13, fontweight="bold")
     ax.invert_yaxis()
 
-    # 图例
     legend_handles = [
         Rectangle((0, 0), 1, 1, facecolor=_COLOR_PREP, edgecolor="#D1D5DB",
                   label="准备时段"),
@@ -403,9 +290,6 @@ def plot_task_gantt(
     print(f"[plot_task_gantt] 已保存: {save_path}")
 
 
-# ============================================================
-#  3. 拍照航向角多样性图（圆图 / 玫瑰图）
-# ============================================================
 def plot_heading_diversity(
     target_id: Union[int, str],
     headings: np.ndarray,
@@ -413,59 +297,31 @@ def plot_heading_diversity(
     title: Optional[str] = None,
     min_angle_diff: float = 60.0,
 ) -> None:
-    """对给定拍照目标，绘制不同次拍摄的航向角圆图，展示角度多样性。
-
-    Parameters
-    ----------
-    target_id : int 或 str
-        目标编号，用于标题和文件命名。
-    headings : np.ndarray
-        各次拍摄的航向角序列（**度**，0~360 或 -180~180 均可）。
-    save_path : str 或 Path
-        图片保存路径。
-    title : str, optional
-        自定义标题。若为 None 则自动生成。
-    min_angle_diff : float, default=60.0
-        拍照最小航向角差异约束（度），在图上以弧段标注。
-
-    Notes
-    -----
-    - 左侧：极坐标圆图，每个方向一条射线，颜色深浅区分拍摄次序。
-    - 右侧：文本摘要，列出各次航向角及相邻角度差。
-    - 若任意两次拍摄角度差 < min_angle_diff，以红色标注违反约束。
-    """
     save_path = Path(save_path)
     _ensure_parent(save_path)
 
     headings = np.asarray(headings, dtype=float)
-    # 统一映射到 [0, 360)
     headings = headings % 360.0
     n = len(headings)
 
     if title is None:
         title = f"目标 {target_id} — 拍照航向角多样性"
 
-    # ---- 排序用于角度差计算 ----
     sorted_idx = np.argsort(headings)
     sorted_headings = headings[sorted_idx]
-    # 相邻角度差（含首尾环绕差）
     diffs = np.diff(sorted_headings)
     wrap_diff = 360.0 - sorted_headings[-1] + sorted_headings[0]
     all_diffs = np.append(diffs, wrap_diff)
     min_diff_val = float(np.min(all_diffs))
     is_violated = min_diff_val < min_angle_diff
 
-    # ---- 绘图：双面板 ----
     fig = plt.figure(figsize=(12, 5.5), constrained_layout=True)
 
-    # ---- 左：极坐标圆图 ----
     ax_polar = fig.add_subplot(121, projection="polar")
 
-    # 极坐标方向：0° 在上方，顺时针
     ax_polar.set_theta_zero_location("N")
     ax_polar.set_theta_direction(-1)
 
-    # 颜色映射：按拍摄次序渐变
     cmap = plt.cm.Blues
     colors = [cmap(0.3 + 0.6 * i / max(n - 1, 1)) for i in range(n)]
 
@@ -486,9 +342,7 @@ def plot_heading_diversity(
             fontweight="bold",
         )
 
-    # 最小角度差异弧段标注
     if n >= 2 and is_violated:
-        # 找到违反约束的最小差对
         min_idx = int(np.argmin(all_diffs))
         if min_idx < n - 1:
             h1 = sorted_headings[min_idx]
@@ -515,7 +369,6 @@ def plot_heading_diversity(
     ax_polar.set_rticks([])
     ax_polar.set_title("航向角分布", fontsize=11, fontweight="bold", pad=15)
 
-    # ---- 右：文本摘要 ----
     ax_text = fig.add_subplot(122)
     ax_text.axis("off")
 
@@ -537,7 +390,6 @@ def plot_heading_diversity(
             f"  {sorted_headings[i]:.1f}° → {sorted_headings[i + 1]:.1f}°  "
             f"Δ = {d:.2f}°{flag}"
         )
-    # 首尾环绕差
     flag_wrap = " ⚠" if wrap_diff < min_angle_diff else ""
     summary_lines.append(
         f"  {sorted_headings[-1]:.1f}° → {sorted_headings[0]:.1f}°  "
@@ -570,42 +422,12 @@ def plot_heading_diversity(
     print(f"[plot_heading_diversity] 已保存: {save_path}")
 
 
-# ============================================================
-#  4. 增强版甘特图（形状标记 + 候选窗口虚线标注）
-# ============================================================
 def plot_task_gantt_enhanced(
     tasks: List[Any],
     save_path: Union[str, Path] = os.path.join(PLOT_DIR, "task_gantt_enhanced.png"),
     title: str = "任务调度甘特图（增强版）",
     candidate_windows: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
-    """增强版任务调度甘特图。
-
-    在原有甘特图基础上增加三项功能：
-      1. 不同任务类型用不同形状标记（▲ 射击 / ● 拍照）
-      2. 可选叠加候选窗口的虚线标注（被丢弃的窗口）
-      3. 统一使用 plot_config 全局样式
-
-    Parameters
-    ----------
-    tasks : list
-        已调度任务列表，兼容 dict / dataclass / 命名元组。
-        需包含 ``task_type``, ``target_id`` 及时间字段
-        （``t_exec`` / ``t_execute`` / ``t_exec_start`` 等）。
-    save_path : str 或 Path
-        图片保存路径。
-    title : str
-        图表标题。
-    candidate_windows : list of dict, optional
-        调度前的全部可行窗口。函数会自动排除已调度的窗口，
-        将剩余窗口以虚线矩形标注在背景中，直观展示被丢弃的窗口。
-
-    Notes
-    -----
-    - 浅灰条 = 准备时段，彩色条 = 执行时段。
-    - ▲ 红色三角 = 射击执行标记，● 蓝色圆点 = 拍照执行标记。
-    - 虚线矩形 = 候选但未被选中的窗口（浅红/浅蓝区分类型）。
-    """
     from matplotlib.lines import Line2D
 
     save_path = Path(save_path)
@@ -623,7 +445,6 @@ def plot_task_gantt_enhanced(
         print(f"[plot_task_gantt_enhanced] 已保存（空）: {save_path}")
         return
 
-    # ---- 提取任务信息并按执行时间排序 ----
     parsed: List[Dict[str, Any]] = []
     for task in tasks:
         ttype = str(
@@ -666,7 +487,6 @@ def plot_task_gantt_enhanced(
     parsed.sort(key=lambda d: d["t_exec_start"])
     n_tasks = len(parsed)
 
-    # ---- 绘图 ----
     fig, ax = plt.subplots(
         figsize=(14, max(3, 0.5 * n_tasks + 2)),
         constrained_layout=True,
@@ -674,14 +494,11 @@ def plot_task_gantt_enhanced(
 
     bar_height = 0.6
 
-    # ── 背景层：候选窗口虚线标注（被丢弃的窗口）──
     if candidate_windows:
-        # 已调度任务索引集合（用于排除）
         scheduled_set = set()
         for p in parsed:
             scheduled_set.add((str(p["tid"]), p["t_exec_start"]))
 
-        # 目标 → y 轴映射
         all_tids = list(
             dict.fromkeys(p["tid"] for p in parsed)
         )
@@ -728,12 +545,10 @@ def plot_task_gantt_enhanced(
                 linewidth=0.8, linestyle="--", alpha=0.6,
             )
 
-    # ── 前景层：已调度任务条 + 形状标记 ──
     for i, p in enumerate(parsed):
         y = n_tasks - 1 - i
         color_exec = _COLOR_SHOOT if p["is_shoot"] else _COLOR_PHOTO
 
-        # 准备时段 — 浅灰
         prep_width = p["t_exec_start"] - p["t_prep_start"]
         if prep_width > 0:
             ax.barh(
@@ -742,7 +557,6 @@ def plot_task_gantt_enhanced(
                 edgecolor="#D1D5DB", linewidth=0.5,
             )
 
-        # 执行时段 — 彩色
         exec_width = p["t_exec_end"] - p["t_exec_start"]
         if exec_width <= 0:
             exec_width = 0.3
@@ -752,7 +566,6 @@ def plot_task_gantt_enhanced(
             edgecolor="white", linewidth=0.5,
         )
 
-        # ── 形状标记：▲ 射击 / ● 拍照 ──
         marker = "^" if p["is_shoot"] else "o"
         marker_color = _COLOR_SHOOT if p["is_shoot"] else _COLOR_PHOTO
         ax.plot(
@@ -762,7 +575,6 @@ def plot_task_gantt_enhanced(
             markeredgewidth=0.8, zorder=6,
         )
 
-        # 时间标注
         ax.text(
             p["t_exec_start"] + exec_width / 2, y,
             f'{p["t_exec_start"]:.1f}s',
@@ -770,7 +582,6 @@ def plot_task_gantt_enhanced(
             fontweight="bold",
         )
 
-    # ---- 样式 ----
     y_labels = [p["label"] for p in reversed(parsed)]
     ax.set_yticks(range(n_tasks))
     ax.set_yticklabels(y_labels, fontsize=9)
@@ -778,7 +589,6 @@ def plot_task_gantt_enhanced(
     ax.set_title(title, fontsize=13, fontweight="bold")
     ax.invert_yaxis()
 
-    # 图例
     legend_handles = [
         Rectangle((0, 0), 1, 1, facecolor=_COLOR_PREP,
                   edgecolor="#D1D5DB", label="准备时段"),
