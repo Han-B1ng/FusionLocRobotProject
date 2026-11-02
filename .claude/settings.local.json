@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import py_compile; py_compile.compile\\('sensitivity_analysis.py', doraise=True\\); print\\('Syntax OK'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('sensitivity_analysis.py', doraise=True\\); py_compile.compile\\('main.py', doraise=True\\); print\\('Both OK'\\)\")",
+      "Bash(python -c \"import sys; sys.path.insert\\(0, '.'\\); from sensitivity_analysis import run; print\\('run\\(\\) function found:', callable\\(run\\)\\)\")",
+      "Bash(python visualization/plot_ablation.py)",
+      "Bash(PYTHONPATH=\"D:/MATLAB/FusionLocRobotProject\" python visualization/plot_ablation.py)",
+      "Bash(python stage1_problem1.py)",
+      "Bash(python stage2_problem2.py)",
+      "Bash(python stage3_problem3.py)",
+      "Bash(python stage4_problem4.py)",
+      "Bash(python generate_tables.py)",
+      "Bash(python generate_summary.py)",
+      "Bash(python3 -c \"import matplotlib.font_manager as fm; fm._load_fontmanager\\(try_read_cache=False\\); fonts = [f.name for f in fm.fontManager.ttflist]; print\\('\\\\n'.join\\(sorted\\(set\\(fonts\\)\\)\\)\\)\")",
+      "Bash(python -c \"import matplotlib.font_manager as fm; fm._load_fontmanager\\(try_read_cache=False\\); fonts = [f.name for f in fm.fontManager.ttflist]; print\\('\\\\n'.join\\(sorted\\(set\\(fonts\\)\\)\\)\\)\")",
+      "Bash(python *)",
+      "Bash(pip install *)"
+    ]
+  }
+}
