@@ -9,3 +9,8 @@ output/
 *.png
 *.jpg
 *.pdf
+
+# 本机 IDE 与系统文件
+.idea/
+*.iml
+.DS_Store
